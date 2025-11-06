@@ -73,34 +73,6 @@ class StabilityCallback(BaseCallback):
             if recent_avg < 0.5 * long_term_avg and long_term_avg > -30:
                 logging.warning("Performance degradation detected: recent performance much worse than before")
 
-class TrainingMetricsCallback(BaseCallback):
-    """Log train episode reward/length every `log_freq` callback steps."""
-    def __init__(self, log_freq: int = 500, verbose: int = 0):
-        super().__init__(verbose)
-        self.log_freq = log_freq
-        self.ep_rewards = []
-        self.ep_lengths = []
-
-    def _on_step(self) -> bool:
-        infos = self.locals.get("infos", [])
-        for info in infos:
-            if "episode" in info:
-                self.ep_rewards.append(info["episode"]["r"])
-                self.ep_lengths.append(info["episode"]["l"])
-
-        if self.n_calls % self.log_freq == 0 and self.ep_rewards:
-            mean_r = float(np.mean(self.ep_rewards[-10:]))
-            std_r = float(np.std(self.ep_rewards[-10:]))
-            mean_l = float(np.mean(self.ep_lengths[-10:]))
-            self.logger.record("train/mean_ep_reward", mean_r)
-            self.logger.record("train/std_ep_reward", std_r)
-            self.logger.record("train/mean_ep_length", mean_l)
-            self.logger.record("timesteps", self.num_timesteps)
-            if self.verbose:
-                logging.info(f"[Train] t={self.num_timesteps:,}  R={mean_r:.2f} ± {std_r:.2f}  L={mean_l:.1f}")
-        return True
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PPO on FetchReach‑v4 with SB3")
     parser.add_argument("--config", type=str, default="configs/ppo_config.yaml", help="Path to config YAML file")
@@ -228,20 +200,6 @@ def make_eval_env(cfg: Dict[str, Any], training_env: Optional[VecNormalize] = No
 def train(cfg: Dict[str, Any]) -> None:
     """Main training function with stability monitoring"""
     
-    # Generate output directory structure: results/{algo_env}/{timestamp}/
-    env_id_clean = cfg["env"]["id"].replace("-", "_").lower()
-    algo_name = cfg["algo_name"].lower()
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-
-    # Root output directory
-    root_log_dir = os.path.join("results", f"{algo_name}_{env_id_clean}", timestamp)
-    os.makedirs(root_log_dir, exist_ok=True)
-
-    # Override config paths to use structured directories
-    cfg["training"]["tensorboard_log"] = os.path.join(root_log_dir, "tensorboard")
-    cfg["training"]["csv_log"] = os.path.join(root_log_dir, "progress", "log.csv")
-    cfg["training"]["checkpoint"]["save_path"] = os.path.join(root_log_dir, "checkpoints")
-    cfg["training"]["checkpoint"]["name_prefix"] = f"{algo_name}_{env_id_clean}"
     # Setup
     seed = cfg["seed"]
     set_random_seed(seed)
@@ -313,17 +271,9 @@ def train(cfg: Dict[str, Any]) -> None:
 
     # Setup callbacks
     callbacks = []
-
-    # Compute a uniform logging frequency aligned with evaluation cadence
-    raw_eval_freq = cfg["evaluation"].get("eval_freq_timesteps", env.num_envs * model.n_steps)
-    uniform_cb_freq = max(raw_eval_freq // env.num_envs, 1)
-
-    # Training metrics (TensorBoard)
-    training_metrics_cb = TrainingMetricsCallback(log_freq=uniform_cb_freq, verbose=1)
-    callbacks.append(training_metrics_cb)
-
-    # Stability monitoring
-    stability_cb = StabilityCallback(check_freq=uniform_cb_freq, verbose=1)
+    
+    # Stability monitoring callback
+    stability_cb = StabilityCallback(check_freq=1000, verbose=1)
     callbacks.append(stability_cb)
     
     # Checkpoint callback
@@ -340,25 +290,18 @@ def train(cfg: Dict[str, Any]) -> None:
     if cfg.get("evaluation", {}).get("enabled", False):
         eval_cfg = cfg["evaluation"]
         eval_env = make_eval_env(cfg, env if isinstance(env, VecNormalize) else None)
-
-        # Use eval_freq_timesteps from config; convert timesteps -> callback steps
-        # Because EvalCallback checks every `n_calls` (one per `env.step()` across all envs),
-        # we divide by num_envs to align with timesteps.
-        raw_eval_freq = eval_cfg.get("eval_freq_timesteps", env.num_envs * model.n_steps)
-        eval_freq = max(raw_eval_freq // env.num_envs, 1)
-
+        
         eval_callback = EvalCallback(
             eval_env,
             best_model_save_path=ckpt_cfg["save_path"],
             log_path=ckpt_cfg["save_path"],
             n_eval_episodes=eval_cfg["n_eval_episodes"],
-            eval_freq=eval_freq,
+            eval_freq=max(ckpt_cfg["save_freq_timesteps"] // env.num_envs, 1000),
             deterministic=eval_cfg["deterministic"],
             render=eval_cfg["render"],
             verbose=1
         )
         callbacks.append(eval_callback)
-
 
     # Start training
     total_timesteps = train_cfg["total_timesteps"]
