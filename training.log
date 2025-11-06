@@ -1,0 +1,170 @@
+2025-11-05 22:39:28,174 — INFO — Starting PPO training on FetchReach-v4
+2025-11-05 22:39:28,174 — INFO — Config: configs\ppo_config.yaml
+2025-11-05 22:39:28,174 — INFO — TensorBoard logdir: ./logs/ppo_fetch_tb/
+2025-11-05 22:39:28,174 — INFO — Model save path: ./models/ppo_fetch/
+2025-11-05 22:39:28,531 — INFO — Created 16 training environments
+2025-11-05 22:39:28,564 — ERROR — Training failed with error: The learning rate schedule must be a float or a callable, not 3e-4
+2025-11-05 22:39:54,805 — INFO — Starting PPO training on FetchReach-v4
+2025-11-05 22:39:54,805 — INFO — Config: configs\ppo_config.yaml
+2025-11-05 22:39:54,807 — INFO — TensorBoard logdir: ./logs/ppo_fetch_tb/
+2025-11-05 22:39:54,807 — INFO — Model save path: ./models/ppo_fetch/
+2025-11-05 22:39:55,169 — INFO — Created 16 training environments
+2025-11-05 22:39:56,010 — INFO — Model device: cuda
+2025-11-05 22:39:56,010 — INFO — Policy architecture: MultiInputActorCriticPolicy(
+  (features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (pi_features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (vf_features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (mlp_extractor): MlpExtractor(
+    (policy_net): Sequential(
+      (0): Linear(in_features=16, out_features=64, bias=True)
+      (1): Tanh()
+      (2): Linear(in_features=64, out_features=64, bias=True)
+      (3): Tanh()
+    )
+    (value_net): Sequential(
+      (0): Linear(in_features=16, out_features=64, bias=True)
+      (1): Tanh()
+      (2): Linear(in_features=64, out_features=64, bias=True)
+      (3): Tanh()
+    )
+  )
+  (action_net): Linear(in_features=64, out_features=4, bias=True)
+  (value_net): Linear(in_features=64, out_features=1, bias=True)
+)
+2025-11-05 22:39:56,031 — INFO — Starting training for 2,000,000 timesteps
+2025-11-05 22:39:56,032 — INFO — Rollout size: 16 envs × 1024 steps = 16,384 timesteps per update
+2025-11-05 22:40:03,252 — INFO — Training interrupted by user
+2025-11-05 22:40:03,252 — INFO — Training completed in 7.22 seconds (0.00 hours)
+2025-11-05 22:40:03,300 — INFO — Saved final model to: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:40:03,300 — INFO — Saved VecNormalize stats to: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:40:03,300 — INFO — Starting final evaluation...
+2025-11-05 22:40:03,320 — INFO — Loading VecNormalize stats from: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:40:03,321 — INFO — Loading model from: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:40:03,338 — ERROR — Training failed with error: too many values to unpack (expected 2)
+2025-11-05 22:40:12,845 — INFO — Starting PPO training on FetchReach-v4
+2025-11-05 22:40:12,845 — INFO — Config: configs\ppo_config.yaml
+2025-11-05 22:40:12,869 — INFO — TensorBoard logdir: ./logs/ppo_fetch_tb/
+2025-11-05 22:40:12,869 — INFO — Model save path: ./models/ppo_fetch/
+2025-11-05 22:40:13,086 — INFO — Created 8 training environments
+2025-11-05 22:40:13,930 — INFO — Model device: cuda
+2025-11-05 22:40:13,930 — INFO — Policy architecture: MultiInputActorCriticPolicy(
+  (features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (pi_features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (vf_features_extractor): CombinedExtractor(
+    (extractors): ModuleDict(
+      (achieved_goal): Flatten(start_dim=1, end_dim=-1)
+      (desired_goal): Flatten(start_dim=1, end_dim=-1)
+      (observation): Flatten(start_dim=1, end_dim=-1)
+    )
+  )
+  (mlp_extractor): MlpExtractor(
+    (policy_net): Sequential(
+      (0): Linear(in_features=16, out_features=64, bias=True)
+      (1): Tanh()
+      (2): Linear(in_features=64, out_features=64, bias=True)
+      (3): Tanh()
+    )
+    (value_net): Sequential(
+      (0): Linear(in_features=16, out_features=64, bias=True)
+      (1): Tanh()
+      (2): Linear(in_features=64, out_features=64, bias=True)
+      (3): Tanh()
+    )
+  )
+  (action_net): Linear(in_features=64, out_features=4, bias=True)
+  (value_net): Linear(in_features=64, out_features=1, bias=True)
+)
+2025-11-05 22:40:13,948 — INFO — Starting training for 2,000,000 timesteps
+2025-11-05 22:40:13,948 — INFO — Rollout size: 8 envs × 1024 steps = 8,192 timesteps per update
+2025-11-05 22:45:03,799 — INFO — Training interrupted by user
+2025-11-05 22:45:03,799 — INFO — Training completed in 289.85 seconds (0.08 hours)
+2025-11-05 22:45:03,859 — INFO — Saved final model to: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:45:03,860 — INFO — Saved VecNormalize stats to: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:45:03,860 — INFO — Starting final evaluation...
+2025-11-05 22:45:03,878 — INFO — Loading VecNormalize stats from: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:45:03,881 — INFO — Loading model from: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:45:03,916 — ERROR — Training failed with error: too many values to unpack (expected 2)
+2025-11-05 22:45:43,833 — INFO — Starting PPO training on FetchReach-v4
+2025-11-05 22:45:43,833 — INFO — Config: configs\ppo_config.yaml
+2025-11-05 22:45:43,836 — INFO — TensorBoard logdir: ./logs/ppo_fetch_tb/
+2025-11-05 22:45:43,836 — INFO — Model save path: ./models/ppo_fetch/
+2025-11-05 22:45:44,194 — ERROR — Training failed with error: VecNormalize.__init__() got an unexpected keyword argument 'norm_reward_when_no_reward_received'
+2025-11-05 22:50:07,575 — INFO — Starting PPO training on FetchReach-v4
+2025-11-05 22:50:07,575 — INFO — Config: configs\ppo_config.yaml
+2025-11-05 22:50:07,575 — INFO — TensorBoard logdir: ./logs/ppo_fetch_tb/
+2025-11-05 22:50:07,575 — INFO — Model save path: ./models/ppo_fetch/
+2025-11-05 22:50:07,941 — INFO — Created 16 training environments
+2025-11-05 22:50:07,941 — INFO — PPO Hyperparameters:
+2025-11-05 22:50:07,942 — INFO —   policy: MultiInputPolicy
+2025-11-05 22:50:07,942 — INFO —   n_steps: 2048
+2025-11-05 22:50:07,942 — INFO —   batch_size: 256
+2025-11-05 22:50:07,942 — INFO —   n_epochs: 4
+2025-11-05 22:50:07,942 — INFO —   gamma: 0.98
+2025-11-05 22:50:07,942 — INFO —   gae_lambda: 0.95
+2025-11-05 22:50:07,942 — INFO —   clip_range: 0.2
+2025-11-05 22:50:07,942 — INFO —   ent_coef: 0.01
+2025-11-05 22:50:07,942 — INFO —   vf_coef: 0.5
+2025-11-05 22:50:07,942 — INFO —   learning_rate: 0.0001
+2025-11-05 22:50:07,942 — INFO —   max_grad_norm: 0.5
+2025-11-05 22:50:07,942 — INFO —   verbose: 1
+2025-11-05 22:50:08,766 — INFO — Model device: cuda
+2025-11-05 22:50:08,766 — INFO — Total parameters: 141,577
+2025-11-05 22:50:08,796 — INFO — Starting training for 3,000,000 timesteps
+2025-11-05 22:50:08,796 — INFO — Rollout size: 16 envs × 2048 steps = 32,768 timesteps
+2025-11-05 22:50:08,796 — INFO — Updates per rollout: 512
+2025-11-05 22:50:08,796 — INFO — Estimated number of rollouts: 91
+2025-11-05 22:50:33,024 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:51:03,532 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:51:42,390 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:52:16,180 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:52:46,194 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:53:15,746 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:53:58,827 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:54:27,291 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:55:01,539 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:55:40,877 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:56:15,678 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:56:45,182 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:57:23,364 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:57:54,166 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:58:26,598 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:58:58,158 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:59:31,260 — WARNING — Performance degradation detected: recent performance much worse than before
+2025-11-05 22:59:56,886 — INFO — Training interrupted by user
+2025-11-05 22:59:56,886 — INFO — Training completed in 588.09 seconds (0.16 hours)
+2025-11-05 22:59:56,905 — INFO — Saved final model to: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:59:56,905 — INFO — Saved VecNormalize stats to: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:59:56,906 — INFO — Starting final evaluation...
+2025-11-05 22:59:56,925 — INFO — Loading VecNormalize stats from: ./models/ppo_fetch/vec_normalize_stats.pkl
+2025-11-05 22:59:56,926 — INFO — Loading model from: ./models/ppo_fetch/final_model.zip
+2025-11-05 22:59:56,979 — ERROR — Training failed with error: too many values to unpack (expected 2)
