@@ -1,119 +1,96 @@
 # config.yaml
-# Stable configuration for train_fetch_ppo.py (Stable-Baselines3 on FetchReach-v4)
+# Production-ready PPO configuration for FetchReach-v4 with SB3
 
-# Top-level seed for reproducibility
+# ----------------------------------------------------------------------
+# Global Settings
+# ----------------------------------------------------------------------
 seed: 42
+algo_name: "ppo"
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Environment Configuration
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 env:
-  # The environment ID. gymnasium_robotics must be installed.
-  id: "FetchReach-v4"
-  
-  # Number of parallel environments to create
-  n_envs: 16  # Increased for better sample efficiency
+  id: "FetchReach-v4"        # Requires gymnasium_robotics
+  n_envs: 4                 # Number of parallel envs for training
+  env_kwargs:
+    max_episode_steps: 50
+    reward_type: "dense"     # Dense reward speeds up training
 
-  # Optional keyword arguments to pass to the env constructor
-  env_kwargs: 
-    max_episode_steps: 50  # Reduced episode length for faster learning
-    reward_type : "dense"
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Vector Normalization
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 vec_normalize:
-  # Enable/disable VecNormalize wrapper
   enabled: true
-  
-  # Normalize observations
   norm_obs: true
-  
-  # Disable reward normalization for sparse reward environments
-  norm_reward: false
-  
-  # Value to clip observations (more conservative)
+  norm_reward: false         # False for sparse/dense rewards
   clip_obs: 10.0
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Algorithm (PPO) Configuration
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 algo:
-  # Policy network to use. Fetch envs use a dictionary observation space,
-  # so MultiInputPolicy is required.
   policy: "MultiInputPolicy"
 
-  # More conservative PPO hyperparameters for stability
-  n_steps: 2048         # Longer rollouts for better value estimates
-  batch_size: 256       # Smaller batch size for more stable updates
-  n_epochs: 4           # Fewer epochs to prevent overfitting
-  gamma: 0.98           # Slightly lower discount factor
-  gae_lambda: 0.95      # GAE parameter
-  clip_range: 0.2       # PPO clipping parameter
-  ent_coef: 0.01        # Entropy bonus for exploration
-  vf_coef: 0.5          # Value function coefficient
-  learning_rate: 1.0e-4 # Much lower learning rate for stability
-  max_grad_norm: 0.5    # Gradient clipping for stability
-  
-  # Network architecture - simpler is often better
+  # Rollout and optimization settings
+  n_steps: 1024
+  batch_size: 256
+  n_epochs: 4
+
+  # RL hyperparameters
+  gamma: 0.98
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  learning_rate: 1.0e-4
+  max_grad_norm: 0.5
+
+  # Network architecture
   policy_kwargs:
     net_arch:
-      pi: [256, 256]    # Policy network
-      vf: [256, 256]    # Value network
-    activation_fn: "tanh"  # Tanh often more stable than ReLU
-  
-  # SB3 verbosity level (0=silent, 1=progress, 2=debug)
+      pi: [256, 256]
+      vf: [256, 256]
+    activation_fn: "tanh"    # More stable for control tasks
+
   verbose: 1
 
-# -----------------------------------------------------------------------------
-# Training & Logging Configuration
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Training Configuration
+# ----------------------------------------------------------------------
 training:
-  # Total number of timesteps (increased for convergence)
-  total_timesteps: 3_000_000
+  total_timesteps: 500000
 
-  # Log directories
+  # Logging
   tensorboard_log: "./logs/ppo_fetch_tb/"
-  # CSV logging enabled for better monitoring
   csv_log: "./logs/ppo_fetch_csv/progress.csv"
 
-  # --- Checkpointing ---
+  # Checkpointing
   checkpoint:
     enabled: true
-    # Directory to save model checkpoints and vec_normalize stats
     save_path: "./models/ppo_fetch/"
-    # Save more frequently to monitor progress
     save_freq_timesteps: 50000
-    # Prefix for checkpoint files
     name_prefix: "ppo_fetch_reach"
 
-  # --- Resume Logic ---
+  # Resume logic
   resume: false
   resume_model_path: "./models/ppo_fetch/ppo_fetch_reach_1000000_steps.zip"
   resume_vecnormalize_path: "./models/ppo_fetch/vec_normalize_stats.pkl"
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Evaluation Configuration
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 evaluation:
-  # Enable evaluation
   enabled: true
-  
-  # Fewer episodes for faster evaluation during training
   n_eval_episodes: 20
-  
-  # Use deterministic actions for evaluation
   deterministic: true
-  
-  # No rendering for faster evaluation
-  render: false 
-  
-  # Evaluation environment settings
+  render: false
+  eval_freq_timesteps: 4096   # Align with PPO rollout (n_envs × n_steps)
   eval_env_kwargs:
-    max_episode_steps: 50
+    max_episode_steps: 100
 
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Curriculum Learning (Optional)
-# -----------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 curriculum:
   enabled: false
-  # Could implement goal distance curriculum here
