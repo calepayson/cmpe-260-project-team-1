@@ -1,6 +1,2 @@
-./models
-./logs
-./training.log
-./.ipynb_checkpoints
-./results/*
-./training
+training.log
+results/*
