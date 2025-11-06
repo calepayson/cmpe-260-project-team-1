@@ -4,3 +4,4 @@
 ./models
 ./logs
 ./training.log
+./.ipynb_checkpoints
