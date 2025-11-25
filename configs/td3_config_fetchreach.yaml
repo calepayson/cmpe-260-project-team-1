@@ -1,0 +1,106 @@
+# configs/td3_config.yaml
+# Production-ready TD3 configuration for FetchPickAndPlace-v4 with SB3
+
+# ----------------------------------------------------------------------
+# Global Settings
+# ----------------------------------------------------------------------
+seed: 42
+algo_name: "td3"
+
+# ----------------------------------------------------------------------
+# Environment Configuration
+# ----------------------------------------------------------------------
+env:
+  id: "FetchReach-v4"
+  # TD3 is off-policy. While multiple envs are supported, n_envs=1 is 
+  # often more stable for buffer management in robotics tasks.
+  n_envs: 1
+  env_kwargs:
+    max_episode_steps: 50
+    reward_type: "sparse"     # Dense reward allows vanilla TD3 to learn
+
+# ----------------------------------------------------------------------
+# Vector Normalization
+# ----------------------------------------------------------------------
+vec_normalize:
+  enabled: true
+  norm_obs: true
+  norm_reward: false         # Generally keep false for TD3/SAC unless rewards are massive
+  
+# ----------------------------------------------------------------------
+# Algorithm (TD3) Configuration
+# ----------------------------------------------------------------------
+algo:
+  policy: "MultiInputPolicy" # Required for Dict observation spaces (Fetch)
+
+# --- HER CONFIGURATION START ---
+  use_her: true
+  her_kwargs:
+    n_sampled_goal: 4                 # Create 4 virtual successes for every real failure
+    goal_selection_strategy: "future" # "future" is the standard HER strategy
+    # max_episode_length: 50          # Optional: usually inferred from env
+  # --- HER CONFIGURATION END ---
+
+  # Exploration Noise (Gaussian)
+  action_noise_sigma: 0.1
+
+  # Optimization settings
+  learning_rate: 1.0e-4      # Often higher than PPO (1e-4)
+  buffer_size: 10000       # Large buffer for off-policy
+  learning_starts: 5000      # Warmup steps before training
+  batch_size: 1024            # Larger batch size helps stabilize Q-values
+  tau: 0.005                 # Polyak averaging coefficient
+  gamma: 0.98                # Discount factor
+  
+  # Update Strategy: 
+  # Update after every episode, doing as many gradient steps as env steps
+  train_freq: [1, "episode"] 
+  gradient_steps: -1         
+
+  # TD3 Specifics
+  policy_delay: 2            # Update policy every 2 Q-updates (Twin Delayed)
+  target_policy_noise: 0.2
+  target_noise_clip: 0.5
+
+  # Network architecture
+  policy_kwargs:
+    net_arch:
+      pi: [512, 512, 512] # Slightly larger network for Sparse/HER tasks
+      qf: [512, 512, 512]
+    activation_fn: "relu"
+
+  verbose: 1
+
+# ----------------------------------------------------------------------
+# Training Configuration
+# ----------------------------------------------------------------------
+training:
+  total_timesteps: 500000
+
+  # Logging
+  tensorboard_log: "./logs/td3_fetchreachtb/"
+  csv_log: "./logs/td3_fetchreachcsv/progress.csv"
+
+  # Checkpointing
+  checkpoint:
+    enabled: true
+    save_path: "./models/td3_fetch/"
+    save_freq_timesteps: 50000
+    name_prefix: "td3_fetchreachpick"
+
+  # Resume logic
+  resume: false
+  resume_model_path: "./models/td3_fetch/final_model.zip"
+  resume_vecnormalize_path: "./models/td3_fetch/vec_normalize_stats.pkl"
+
+# ----------------------------------------------------------------------
+# Evaluation Configuration
+# ----------------------------------------------------------------------
+evaluation:
+  enabled: true
+  n_eval_episodes: 20
+  deterministic: true
+  render: false
+  eval_freq_timesteps: 5000  # Evaluate every 5k steps
+  eval_env_kwargs:
+    max_episode_steps: 100
