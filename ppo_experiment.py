@@ -32,6 +32,23 @@ from rich.panel import Panel
 #                                CUSTOM CALLBACKS
 # ============================================================================
 
+class SyncEvalCallback(EvalCallback):
+    """
+    Custom Callback that syncs normalization stats from 
+    Train Env to Eval Env before every evaluation.
+    """
+    def _on_step(self) -> bool:
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            # Sync Observation Statistics
+            if hasattr(self.training_env, 'obs_rms') and hasattr(self.eval_env, 'obs_rms'):
+                self.eval_env.obs_rms = self.training_env.obs_rms.copy()
+            
+            # Sync Reward Statistics (useful for PPO/TD3 value estimation, though less critical for Eval)
+            if hasattr(self.training_env, 'ret_rms') and hasattr(self.eval_env, 'ret_rms'):
+                self.eval_env.ret_rms = self.training_env.ret_rms.copy()
+                
+        return super()._on_step()
+    
 class RichDashboardCallback(BaseCallback):
     """Live training dashboard using Rich library (matching TD3 style)"""
     
@@ -275,7 +292,7 @@ def setup_directories(cfg: Dict[str, Any]) -> None:
 
     os.makedirs(cfg["training"]["tensorboard_log"], exist_ok=True)
     os.makedirs(cfg["training"]["checkpoint"]["save_path"], exist_ok=True)
-    logging.info(f"📁 Output directory: {root}")
+    logging.info(f"Output directory: {root}")
 
 
 def resolve_activation_fn(name: str):
@@ -308,7 +325,7 @@ def make_train_env(cfg: Dict[str, Any]) -> VecEnv:
     vec_env_cls = SubprocVecEnv if n_envs > 1 else DummyVecEnv
     
     if n_envs > 1:
-        logging.info(f"🚀 Using {n_envs} parallel environments with SubprocVecEnv")
+        logging.info(f"Using {n_envs} parallel environments with SubprocVecEnv")
 
     env = make_vec_env(
         env_cfg["id"],
@@ -367,7 +384,7 @@ def make_eval_env(cfg: Dict[str, Any], train_env: Optional[VecEnv] = None) -> Ve
         if train_env is not None and isinstance(train_env, VecNormalize):
             eval_env.obs_rms = train_env.obs_rms
             eval_env.ret_rms = train_env.ret_rms
-            logging.info("✓ Synced normalization stats to eval env")
+            logging.info("Synced normalization stats to eval env")
     
     return eval_env
 
@@ -415,7 +432,7 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
         if not resume_path or not os.path.exists(resume_path):
             raise ValueError(f"resume_model_path must exist when resume=true. Path: {resume_path}")
 
-        logging.info(f"📂 Resuming from {resume_path}")
+        logging.info(f"Resuming from {resume_path}")
         
         # Load VecNormalize first
         if cfg.get("vec_normalize", {}).get("enabled", False):
@@ -497,7 +514,7 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
         raw_eval_freq = eval_cfg.get("eval_freq_timesteps", env.num_envs * model.n_steps)
         eval_freq = max(raw_eval_freq // env.num_envs, 1)
 
-        eval_callback = EvalCallback(
+        eval_callback = SyncEvalCallback(
             eval_env,
             best_model_save_path=ckpt_cfg["save_path"],
             log_path=ckpt_cfg["save_path"],
@@ -514,8 +531,8 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     rollout_size = env.num_envs * model.n_steps
     total_updates = (rollout_size // model.batch_size) * model.n_epochs
     
-    logging.info(f"🚀 Starting training for {total_timesteps:,} timesteps")
-    logging.info(f"⚡ TRAINING PARAMETERS:")
+    logging.info(f"   - Starting training for {total_timesteps:,} timesteps")
+    logging.info(f"   - TRAINING PARAMETERS:")
     logging.info(f"   - Parallel Envs: {env.num_envs}")
     logging.info(f"   - Rollout size: {rollout_size:,}")
     logging.info(f"   - Updates per rollout: {total_updates}")
@@ -530,9 +547,9 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
             progress_bar=False  # Use Rich dashboard instead
         )
     except KeyboardInterrupt:
-        logging.info("⏸️  Training interrupted by user")
+        logging.info("Training interrupted by user")
     except Exception as e:
-        logging.error(f"❌ Training crashed: {e}", exc_info=True)
+        logging.error(f"Training crashed: {e}", exc_info=True)
         raise
     
     end_time = time.time()
@@ -542,12 +559,12 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     # Save final model and stats
     final_model_path = os.path.join(ckpt_cfg["save_path"], "final_model")
     model.save(final_model_path)
-    logging.info(f"💾 Saved final model: {final_model_path}.zip")
+    logging.info(f"Saved final model: {final_model_path}.zip")
 
     if cfg.get("vec_normalize", {}).get("enabled", False):
         vn_save_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
         env.save(vn_save_path)
-        logging.info(f"💾 Saved VecNormalize stats: {vn_save_path}")
+        logging.info(f"Saved VecNormalize stats: {vn_save_path}")
 
     env.close()
 
@@ -592,7 +609,7 @@ def evaluate(cfg: Dict[str, Any]) -> None:
             eval_env.norm_reward = False
             logging.info(f"✓ Loaded VecNormalize stats for evaluation")
         else:
-            logging.warning("⚠️  VecNormalize stats not found, using fresh wrapper")
+            logging.warning("VecNormalize stats not found, using fresh wrapper")
             eval_env = VecNormalize(
                 eval_env,
                 norm_obs=True,
@@ -652,8 +669,8 @@ def evaluate(cfg: Dict[str, Any]) -> None:
     std_reward = np.std(rewards)
     
     logging.info("=" * 60)
-    logging.info(f"📊 Success Rate: {success_rate:.1%}")
-    logging.info(f"📊 Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
+    logging.info(f"Success Rate: {success_rate:.1%}")
+    logging.info(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
     logging.info("=" * 60)
     
     eval_env.close()
