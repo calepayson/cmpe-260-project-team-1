@@ -177,7 +177,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/ddpg_half_cheetah.yaml",
+        default="configs/ddpg_config_half_cheetah.yaml",
         help="Path to config YAML",
     )
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
