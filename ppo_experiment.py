@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 train_fetch_ppo.py
-Stable PPO training for FetchReach-v4 with collapse prevention
+Stable PPO training for FetchReach-v4 with TD3-style logging
 """
 
 import os
@@ -10,19 +10,135 @@ import argparse
 import logging
 import time
 from typing import Any, Dict, Optional
-import matplotlib.pyplot as plt
 
 import gymnasium as gym
-import gymnasium_robotics  # ensure the robotics envs are registered
+import gymnasium_robotics
 import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import VecNormalize, VecEnv
+from stable_baselines3.common.vec_env import VecNormalize, VecEnv, DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, CallbackList, BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.utils import set_random_seed
+
+from rich.live import Live
+from rich.table import Table
+from rich.console import Console
+from rich.panel import Panel
+
+# ============================================================================
+#                                CUSTOM CALLBACKS
+# ============================================================================
+
+class RichDashboardCallback(BaseCallback):
+    """Live training dashboard using Rich library (matching TD3 style)"""
+    
+    def __init__(self, total_timesteps: int, check_freq: int = 1000, verbose: int = 0):
+        super().__init__(verbose)
+        self.total_timesteps = total_timesteps
+        self.check_freq = check_freq
+        self.ep_rewards = []
+        self.ep_lengths = []
+        self.successes = []
+        self.start_time = None
+        self.live = None
+        self.console = Console()
+    
+    def _on_training_start(self) -> None:
+        self.start_time = time.time()
+        self.live = Live(self.generate_table(), refresh_per_second=2, console=self.console)
+        self.live.start()
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            # Episode tracking
+            if "episode" in info:
+                self.ep_rewards.append(info["episode"]["r"])
+                self.ep_lengths.append(info["episode"]["l"])
+            
+            # Handle Gymnasium final_info first
+            final_info = info.get("final_info")
+            if final_info is not None and "is_success" in final_info:
+                self.successes.append(float(final_info["is_success"]))
+            elif "is_success" in info:
+                self.successes.append(float(info["is_success"]))
+
+        # Periodic UI update
+        if self.n_calls % self.check_freq == 0:
+            self.live.update(self.generate_table())
+
+        return True
+
+    def generate_table(self):
+        current_step = self.num_timesteps
+        progress = current_step / self.total_timesteps
+        elapsed = time.time() - self.start_time if self.start_time else 0
+        fps = int(current_step / elapsed) if elapsed > 0 else 0
+        
+        mean_r = np.mean(self.ep_rewards[-50:]) if self.ep_rewards else 0.0
+        best_r = np.max(self.ep_rewards) if self.ep_rewards else 0.0
+        mean_l = np.mean(self.ep_lengths[-50:]) if self.ep_lengths else 0.0
+        success_rate = np.mean(self.successes[-100:]) if self.successes else 0.0
+        
+        table = Table(title=f"PPO Training ({progress:.1%})", box=None)
+        table.add_column("Metric", style="cyan", no_wrap=True)
+        table.add_column("Value", style="magenta")
+        
+        table.add_row("Timesteps", f"{current_step:,} / {self.total_timesteps:,}")
+        table.add_row("FPS", f"{fps}")
+        table.add_row("Mean Reward (50 ep)", f"{mean_r:.2f}")
+        table.add_row("Best Reward", f"{best_r:.2f}")
+        table.add_row("Success Rate (100 ep)", f"{success_rate:.1%}")
+        
+        # Status indicator
+        if success_rate > 0.8:
+            status = "[bold green]SOLVED[/bold green]"
+        elif success_rate > 0.5:
+            status = "[green]EXCELLENT[/green]"
+        elif success_rate > 0.2:
+            status = "[yellow]IMPROVING[/yellow]"
+        elif success_rate > 0.05:
+            status = "[yellow]LEARNING[/yellow]"
+        else:
+            status = "[red]EXPLORING[/red]"
+        
+        table.add_row("Status", status)
+        return Panel(table, title="FetchReach Training", border_style="blue")
+
+    def _on_training_end(self) -> None:
+        if self.live:
+            self.live.stop()
+
+
+class SuccessRateCallback(BaseCallback):
+    """Track and log success rate (matching TD3 style)"""
+    
+    def __init__(self, log_freq: int = 2000, verbose: int = 0):
+        super().__init__(verbose)
+        self.log_freq = log_freq
+        self.successes = []
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        for info in infos:
+            # Handle Gymnasium final_info first
+            final_info = info.get("final_info")
+            if final_info is not None and "is_success" in final_info:
+                self.successes.append(float(final_info["is_success"]))
+            elif "is_success" in info:
+                self.successes.append(float(info["is_success"]))
+
+        if self.n_calls % self.log_freq == 0 and len(self.successes) >= 10:
+            recent_sr = np.mean(self.successes[-100:])
+            all_time_sr = np.mean(self.successes)
+            
+            self.logger.record("train/success_rate_recent", recent_sr)
+            self.logger.record("train/success_rate_all", all_time_sr)
+        return True
+
 
 class StabilityCallback(BaseCallback):
     """Custom callback to monitor training stability and prevent collapse"""
@@ -32,9 +148,6 @@ class StabilityCallback(BaseCallback):
         self.check_freq = check_freq
         self.episode_rewards = []
         self.episode_lengths = []
-        self.policy_losses = []
-        self.value_losses = []
-        self.explained_variances = []
         
     def _on_step(self) -> bool:
         # Collect episode statistics
@@ -64,7 +177,7 @@ class StabilityCallback(BaseCallback):
         self.logger.record("stability/std_episode_reward", std_recent_reward)
         
         # Check for collapse indicators
-        if std_recent_reward < 0.01 and avg_recent_reward < -40:  # Adjust thresholds based on your task
+        if std_recent_reward < 0.01 and avg_recent_reward < -40:
             logging.warning("Potential policy collapse detected: very low reward with no variance")
         
         if len(self.episode_rewards) > 50:
@@ -72,6 +185,7 @@ class StabilityCallback(BaseCallback):
             recent_avg = np.mean(self.episode_rewards[-10:])
             if recent_avg < 0.5 * long_term_avg and long_term_avg > -30:
                 logging.warning("Performance degradation detected: recent performance much worse than before")
+
 
 class TrainingMetricsCallback(BaseCallback):
     """Log train episode reward/length every `log_freq` callback steps."""
@@ -101,15 +215,24 @@ class TrainingMetricsCallback(BaseCallback):
         return True
 
 
+# ============================================================================
+#                                CONFIG HELPERS
+# ============================================================================
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train PPO on FetchReach‑v4 with SB3")
     parser.add_argument("--config", type=str, default="configs/ppo_config.yaml", help="Path to config YAML file")
+    parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     return parser.parse_args()
+
 
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
         cfg = yaml.safe_load(f)
+    if cfg is None:
+        raise ValueError(f"Config file '{path}' is empty or invalid.")
     return cfg
+
 
 def validate_config(cfg: Dict[str, Any]) -> None:
     # Basic validation of required keys
@@ -136,159 +259,182 @@ def validate_config(cfg: Dict[str, Any]) -> None:
     
     logging.debug("Config successfully validated.")
 
-def setup_logging_and_directories(cfg: Dict[str, Any]) -> None:
-    """Setup logging and create necessary directories"""
-    train_cfg = cfg["training"]
-    
-    # Create directories
-    os.makedirs(train_cfg["tensorboard_log"], exist_ok=True)
-    os.makedirs(train_cfg["checkpoint"]["save_path"], exist_ok=True)
-    
-    # Create CSV log directory if specified
-    csv_log = train_cfg.get("csv_log")
-    if csv_log:
-        os.makedirs(os.path.dirname(csv_log), exist_ok=True)
+
+def setup_directories(cfg: Dict[str, Any]) -> None:
+    """Setup directories matching TD3 style"""
+    env_id = cfg["env"]["id"].replace("-", "_").lower()
+    algo = cfg["algo_name"].lower()
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    root = os.path.join("results", f"{algo}_{env_id}", timestamp)
+    os.makedirs(root, exist_ok=True)
+
+    cfg["training"]["tensorboard_log"] = os.path.join(root, "tensorboard")
+    cfg["training"]["checkpoint"]["save_path"] = os.path.join(root, "checkpoints")
+    cfg["training"]["checkpoint"]["name_prefix"] = f"{algo}_{env_id}"
+
+    os.makedirs(cfg["training"]["tensorboard_log"], exist_ok=True)
+    os.makedirs(cfg["training"]["checkpoint"]["save_path"], exist_ok=True)
+    logging.info(f"📁 Output directory: {root}")
+
 
 def resolve_activation_fn(name: str):
     """Map string names to PyTorch activation functions"""
     name = name.lower()
-    if name == "relu":
-        return torch.nn.ReLU
-    elif name == "tanh":
-        return torch.nn.Tanh
-    elif name == "elu":
-        return torch.nn.ELU
-    elif name == "leakyrelu":
-        return torch.nn.LeakyReLU
-    elif name == "sigmoid":
-        return torch.nn.Sigmoid
-    else:
+    mapping = {
+        "relu": torch.nn.ReLU,
+        "tanh": torch.nn.Tanh,
+        "elu": torch.nn.ELU,
+        "leakyrelu": torch.nn.LeakyReLU,
+        "sigmoid": torch.nn.Sigmoid,
+    }
+    if name not in mapping:
         raise ValueError(f"Unknown activation function: {name}")
+    return mapping[name]
 
-def make_envs(cfg: Dict[str, Any]) -> VecEnv:
-    """Create vectorized training environments with proper wrappers"""
+
+# ============================================================================
+#                                ENVIRONMENT
+# ============================================================================
+
+def make_train_env(cfg: Dict[str, Any]) -> VecEnv:
+    """Create training environment with proper VecNormalize wrapper"""
     env_cfg = cfg["env"]
     seed = cfg.get("seed", 0)
-    n_envs = env_cfg["n_envs"]
-    env_id = env_cfg["id"]
-    env_kwargs = env_cfg.get("env_kwargs", {})
-
-    # Set random seed for reproducibility
+    n_envs = env_cfg.get("n_envs", 1)
     set_random_seed(seed)
 
+    # Use SubprocVecEnv for parallel environments (faster than DummyVecEnv)
+    vec_env_cls = SubprocVecEnv if n_envs > 1 else DummyVecEnv
+    
+    if n_envs > 1:
+        logging.info(f"🚀 Using {n_envs} parallel environments with SubprocVecEnv")
+
     env = make_vec_env(
-        env_id,
+        env_cfg["id"],
         n_envs=n_envs,
         seed=seed,
-        env_kwargs=env_kwargs,
+        env_kwargs=env_cfg.get("env_kwargs", {}),
         wrapper_class=Monitor,
+        vec_env_cls=vec_env_cls,
     )
 
     if cfg.get("vec_normalize", {}).get("enabled", False):
         vn_cfg = cfg["vec_normalize"]
+        logging.info("🔧 Applying VecNormalize wrapper")
         env = VecNormalize(
             env,
             norm_obs=vn_cfg.get("norm_obs", True),
             norm_reward=vn_cfg.get("norm_reward", False),
-            clip_obs=vn_cfg.get("clip_obs", None),
+            clip_obs=vn_cfg.get("clip_obs", 10.0),
             gamma=cfg["algo"].get("gamma", 0.99),
             training=True,
         )
     return env
 
-def make_eval_env(cfg: Dict[str, Any], training_env: Optional[VecNormalize] = None) -> VecEnv:
-    """Create evaluation environment with proper normalization"""
+
+def make_eval_env(cfg: Dict[str, Any], train_env: Optional[VecEnv] = None) -> VecEnv:
+    """Create evaluation environment with same normalization as training"""
     env_cfg = cfg["env"]
     eval_cfg = cfg.get("evaluation", {})
     seed = cfg.get("seed", 0)
-    env_id = env_cfg["id"]
-    eval_env_kwargs = eval_cfg.get("eval_env_kwargs", {})
+
+    merged_kwargs = dict(env_cfg.get("env_kwargs", {}))
+    merged_kwargs.update(eval_cfg.get("eval_env_kwargs", {}))
 
     eval_env = make_vec_env(
-        env_id,
+        env_cfg["id"],
         n_envs=1,
-        seed=seed + 1000,  # Different seed for eval
-        env_kwargs=eval_env_kwargs,
+        seed=seed + 1000,
+        env_kwargs=merged_kwargs,
         wrapper_class=Monitor,
+        vec_env_cls=DummyVecEnv,
     )
 
-    # Apply VecNormalize if enabled
-    if cfg.get("vec_normalize", {}).get("enabled", False):
-        if training_env is not None and isinstance(training_env, VecNormalize):
-            # Copy normalization stats from training environment
-            eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
-            eval_env.obs_rms = training_env.obs_rms
-            eval_env.ret_rms = training_env.ret_rms
-        else:
-            # Create new VecNormalize for final evaluation
-            eval_env = VecNormalize(eval_env, training=False, norm_reward=False)
+    # Apply VecNormalize to eval env if training uses it
+    vec_norm_cfg = cfg.get("vec_normalize", {})
+    if vec_norm_cfg.get("enabled", False):
+        eval_env = VecNormalize(
+            eval_env,
+            norm_obs=vec_norm_cfg.get("norm_obs", True),
+            norm_reward=False,
+            clip_obs=vec_norm_cfg.get("clip_obs", 10.0),
+            gamma=vec_norm_cfg.get("gamma", 0.99),
+            training=False
+        )
+        
+        # Sync normalization stats from training env if available
+        if train_env is not None and isinstance(train_env, VecNormalize):
+            eval_env.obs_rms = train_env.obs_rms
+            eval_env.ret_rms = train_env.ret_rms
+            logging.info("✓ Synced normalization stats to eval env")
     
     return eval_env
 
-def train(cfg: Dict[str, Any]) -> None:
-    """Main training function with stability monitoring"""
+
+# ============================================================================
+#                                TRAINING
+# ============================================================================
+
+def train(cfg: Dict[str, Any], resume: bool = False) -> None:
+    """Main training function with TD3-style logging"""
     
-    # Generate output directory structure: results/{algo_env}/{timestamp}/
-    env_id_clean = cfg["env"]["id"].replace("-", "_").lower()
-    algo_name = cfg["algo_name"].lower()
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-
-    # Root output directory
-    root_log_dir = os.path.join("results", f"{algo_name}_{env_id_clean}", timestamp)
-    os.makedirs(root_log_dir, exist_ok=True)
-
-    # Override config paths to use structured directories
-    cfg["training"]["tensorboard_log"] = os.path.join(root_log_dir, "tensorboard")
-    cfg["training"]["csv_log"] = os.path.join(root_log_dir, "progress", "log.csv")
-    cfg["training"]["checkpoint"]["save_path"] = os.path.join(root_log_dir, "checkpoints")
-    cfg["training"]["checkpoint"]["name_prefix"] = f"{algo_name}_{env_id_clean}"
+    setup_directories(cfg)
+    train_cfg = cfg["training"]
+    algo_cfg = cfg["algo"]
+    
+    # Log performance settings
+    logging.info("=" * 60)
+    logging.info("TRAINING CONFIGURATION")
+    logging.info("=" * 60)
+    
     # Setup
     seed = cfg["seed"]
     set_random_seed(seed)
-    setup_logging_and_directories(cfg)
     
     train_cfg = cfg["training"]
     ckpt_cfg = train_cfg["checkpoint"]
     
-    # Configure SB3 logger
-    csv_log = train_cfg.get("csv_log")
-    log_folder = os.path.dirname(csv_log) if csv_log else train_cfg["tensorboard_log"]
-    new_logger = configure(folder=log_folder, format_strings=["stdout", "tensorboard", "csv"])
+    # Configure logger
+    logger = configure(
+        folder=train_cfg["tensorboard_log"],
+        format_strings=["stdout", "tensorboard", "csv"]
+    )
     
     logging.info(f"TensorBoard logdir: {train_cfg['tensorboard_log']}")
     logging.info(f"Model save path: {ckpt_cfg['save_path']}")
 
     # Create environments
-    env = make_envs(cfg)
-    logging.info(f"Created {env.num_envs} training environments")
+    env = make_train_env(cfg)
+    logging.info(f"✓ Created {env.num_envs} training environment(s)")
 
     # Handle resume logic
     model: Optional[PPO] = None
-    if train_cfg.get("resume", False):
+    if resume or train_cfg.get("resume", False):
         resume_path = train_cfg.get("resume_model_path")
         if not resume_path or not os.path.exists(resume_path):
             raise ValueError(f"resume_model_path must exist when resume=true. Path: {resume_path}")
 
-        # Load VecNormalize first so the model binds to the correct env
+        logging.info(f"📂 Resuming from {resume_path}")
+        
+        # Load VecNormalize first
         if cfg.get("vec_normalize", {}).get("enabled", False):
             vec_path = train_cfg.get("resume_vecnormalize_path")
-            if not vec_path or not os.path.exists(vec_path):
-                raise ValueError("resume_vecnormalize_path must exist when resume=true")
-            # Unwrap if already normalized
-            if isinstance(env, VecNormalize):
-                env = env.venv
-            env = VecNormalize.load(vec_path, env)
-            env.training = True
-            env.norm_reward = cfg["vec_normalize"].get("norm_reward", False)
+            if vec_path and os.path.exists(vec_path):
+                if isinstance(env, VecNormalize):
+                    env = env.venv
+                env = VecNormalize.load(vec_path, env)
+                env.training = True
+                env.norm_reward = cfg["vec_normalize"].get("norm_reward", False)
+                logging.info(f"✓ Loaded VecNormalize stats from {vec_path}")
 
-        logging.info(f"Resuming model from {resume_path}")
         model = PPO.load(resume_path, env=env, device="auto")
         model.set_env(env)
     else:
         # Create new model
-        algo_cfg = cfg["algo"].copy()  # Make a copy to avoid modifying original
+        algo_cfg_copy = cfg["algo"].copy()
         
-        policy_kwargs = algo_cfg.pop("policy_kwargs", {})
+        policy_kwargs = algo_cfg_copy.pop("policy_kwargs", {})
 
         # Convert activation_fn string to actual class
         if "activation_fn" in policy_kwargs and isinstance(policy_kwargs["activation_fn"], str):
@@ -296,33 +442,36 @@ def train(cfg: Dict[str, Any]) -> None:
         
         # Log hyperparameters
         logging.info("PPO Hyperparameters:")
-        for key, value in algo_cfg.items():
+        for key, value in algo_cfg_copy.items():
             if key != "policy_kwargs":
                 logging.info(f"  {key}: {value}")
         
         model = PPO(
-            algo_cfg["policy"],
+            algo_cfg_copy["policy"],
             env,
-            verbose=algo_cfg.get("verbose", 1),
+            verbose=algo_cfg_copy.get("verbose", 1),
             tensorboard_log=train_cfg["tensorboard_log"],
             policy_kwargs=policy_kwargs,
-            **{k: v for k, v in algo_cfg.items() if k not in ["policy", "verbose", "policy_kwargs"]}
+            **{k: v for k, v in algo_cfg_copy.items() if k not in ["policy", "verbose", "policy_kwargs"]}
         )
     
-    model.set_logger(new_logger)
+    model.set_logger(logger)
     
     # Log model info
     logging.info(f"Model device: {model.device}")
     logging.info(f"Total parameters: {sum(p.numel() for p in model.policy.parameters()):,}")
 
-    # Setup callbacks
-    callbacks = []
+    # Setup callbacks (matching TD3 order and style)
+    callbacks = [
+        RichDashboardCallback(total_timesteps=train_cfg["total_timesteps"]),
+        SuccessRateCallback(log_freq=2000),
+    ]
 
-    # Compute a uniform logging frequency aligned with evaluation cadence
+    # Compute uniform logging frequency
     raw_eval_freq = cfg["evaluation"].get("eval_freq_timesteps", env.num_envs * model.n_steps)
     uniform_cb_freq = max(raw_eval_freq // env.num_envs, 1)
 
-    # Training metrics (TensorBoard)
+    # Training metrics
     training_metrics_cb = TrainingMetricsCallback(log_freq=uniform_cb_freq, verbose=1)
     callbacks.append(training_metrics_cb)
 
@@ -345,9 +494,6 @@ def train(cfg: Dict[str, Any]) -> None:
         eval_cfg = cfg["evaluation"]
         eval_env = make_eval_env(cfg, env if isinstance(env, VecNormalize) else None)
 
-        # Use eval_freq_timesteps from config; convert timesteps -> callback steps
-        # Because EvalCallback checks every `n_calls` (one per `env.step()` across all envs),
-        # we divide by num_envs to align with timesteps.
         raw_eval_freq = eval_cfg.get("eval_freq_timesteps", env.num_envs * model.n_steps)
         eval_freq = max(raw_eval_freq // env.num_envs, 1)
 
@@ -357,33 +503,37 @@ def train(cfg: Dict[str, Any]) -> None:
             log_path=ckpt_cfg["save_path"],
             n_eval_episodes=eval_cfg["n_eval_episodes"],
             eval_freq=eval_freq,
-            deterministic=eval_cfg["deterministic"],
-            render=eval_cfg["render"],
+            deterministic=eval_cfg.get("deterministic", True),
+            render=eval_cfg.get("render", False),
             verbose=1
         )
         callbacks.append(eval_callback)
-
 
     # Start training
     total_timesteps = train_cfg["total_timesteps"]
     rollout_size = env.num_envs * model.n_steps
     total_updates = (rollout_size // model.batch_size) * model.n_epochs
     
-    logging.info(f"Starting training for {total_timesteps:,} timesteps")
-    logging.info(f"Rollout size: {env.num_envs} envs × {model.n_steps} steps = {rollout_size:,} timesteps")
-    logging.info(f"Updates per rollout: {total_updates}")
-    logging.info(f"Estimated number of rollouts: {total_timesteps // rollout_size}")
+    logging.info(f"🚀 Starting training for {total_timesteps:,} timesteps")
+    logging.info(f"⚡ TRAINING PARAMETERS:")
+    logging.info(f"   - Parallel Envs: {env.num_envs}")
+    logging.info(f"   - Rollout size: {rollout_size:,}")
+    logging.info(f"   - Updates per rollout: {total_updates}")
+    logging.info(f"   - Estimated rollouts: {total_timesteps // rollout_size}")
     
     start_time = time.time()
     
     try:
         model.learn(
             total_timesteps=total_timesteps,
-            callback=CallbackList(callbacks) if callbacks else None,
-            progress_bar=True
+            callback=CallbackList(callbacks),
+            progress_bar=False  # Use Rich dashboard instead
         )
     except KeyboardInterrupt:
-        logging.info("Training interrupted by user")
+        logging.info("⏸️  Training interrupted by user")
+    except Exception as e:
+        logging.error(f"❌ Training crashed: {e}", exc_info=True)
+        raise
     
     end_time = time.time()
     training_time = end_time - start_time
@@ -392,128 +542,132 @@ def train(cfg: Dict[str, Any]) -> None:
     # Save final model and stats
     final_model_path = os.path.join(ckpt_cfg["save_path"], "final_model")
     model.save(final_model_path)
-    logging.info(f"Saved final model to: {final_model_path}.zip")
+    logging.info(f"💾 Saved final model: {final_model_path}.zip")
 
     if cfg.get("vec_normalize", {}).get("enabled", False):
         vn_save_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
         env.save(vn_save_path)
-        logging.info(f"Saved VecNormalize stats to: {vn_save_path}")
+        logging.info(f"💾 Saved VecNormalize stats: {vn_save_path}")
 
     env.close()
 
 
+# ============================================================================
+#                                EVALUATION
+# ============================================================================
+
 def evaluate(cfg: Dict[str, Any]) -> None:
-    """Enhanced evaluation with detailed statistics, fixed for SB3 VecEnv API"""
+    """CORRECTED evaluation with proper reset handling (matching TD3 style)"""
     if not cfg.get("evaluation", {}).get("enabled", False):
         logging.info("Evaluation disabled in config; skipping.")
         return
 
-    logging.info("Starting final evaluation...")
+    logging.info("=" * 60)
+    logging.info("FINAL EVALUATION")
+    logging.info("=" * 60)
+    
     eval_cfg = cfg["evaluation"]
     ckpt_cfg = cfg["training"]["checkpoint"]
 
-    # Plain eval env, then load VecNormalize once if present
-    env_id = cfg["env"]["id"]
-    seed = cfg.get("seed", 0)
-    eval_env_kwargs = eval_cfg.get("eval_env_kwargs", {})
-
+    # Setup Env
+    merged_kwargs = dict(cfg["env"].get("env_kwargs", {}))
+    merged_kwargs.update(eval_cfg.get("eval_env_kwargs", {}))
+    
     eval_env = make_vec_env(
-        env_id,
+        cfg["env"]["id"],
         n_envs=1,
-        seed=seed + 1000,
-        env_kwargs=eval_env_kwargs,
+        seed=cfg["seed"] + 2000,
+        env_kwargs=merged_kwargs,
         wrapper_class=Monitor,
     )
 
-    if cfg.get("vec_normalize", {}).get("enabled", False):
-        vn_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
-        if os.path.exists(vn_path):
-            logging.info(f"Loading VecNormalize stats from: {vn_path}")
-            eval_env = VecNormalize.load(vn_path, eval_env)
+    # Apply VecNormalize if used in training
+    vec_norm_cfg = cfg.get("vec_normalize", {})
+    if vec_norm_cfg.get("enabled", False):
+        vec_norm_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
+        
+        if os.path.exists(vec_norm_path):
+            eval_env = VecNormalize.load(vec_norm_path, eval_env)
             eval_env.training = False
             eval_env.norm_reward = False
+            logging.info(f"✓ Loaded VecNormalize stats for evaluation")
         else:
-            logging.warning(f"VecNormalize stats file not found at: {vn_path}")
+            logging.warning("⚠️  VecNormalize stats not found, using fresh wrapper")
+            eval_env = VecNormalize(
+                eval_env,
+                norm_obs=True,
+                norm_reward=False,
+                training=False
+            )
 
     # Load model
     model_path = os.path.join(ckpt_cfg["save_path"], "final_model.zip")
     if not os.path.exists(model_path):
-        logging.error(f"Model file not found at: {model_path}")
+        logging.error(f"Model missing: {model_path}")
         return
 
     logging.info(f"Loading model from: {model_path}")
     model = PPO.load(model_path, env=eval_env, device="auto")
 
     # Run evaluation episodes
-    n_episodes = int(eval_cfg["n_eval_episodes"])
-    deterministic = bool(eval_cfg["deterministic"])
-
+    n_episodes = eval_cfg.get("n_eval_episodes", 50)
     success_count = 0
-    total_rewards: list[float] = []
-    episode_lengths: list[int] = []
-
+    rewards = []
+    
+    # Proper reset handling for modern Gymnasium
+    obs = eval_env.reset()
+    
+    # Handle both old and new Gymnasium API
+    if isinstance(obs, tuple):
+        obs, _ = obs
+    
     for ep in range(n_episodes):
-        # VecEnv.reset() returns only obs
-        obs = eval_env.reset()
-        episode_reward = 0.0
-        step_count = 0
-
-        while True:
-            action, _ = model.predict(obs, deterministic=deterministic)
-            # VecEnv.step() returns 4 values: obs, rewards, dones, infos
-            obs, rewards, dones, infos = eval_env.step(action)
-
-            # Convert vectorized returns to scalars
-            r = float(np.asarray(rewards).reshape(-1)[0])
-            episode_reward += r
-            step_count += 1
-
-            done = bool(np.asarray(dones).reshape(-1)[0])
-
+        done = False
+        ep_reward = 0.0
+        
+        while not done:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, done_arr, infos = eval_env.step(action)
+            
+            ep_reward += float(reward[0])
+            done = done_arr[0]
+            
             if done:
-                info0 = infos[0] if isinstance(infos, (list, tuple)) else infos
-                # Gymnasium robotics sets "is_success" in info
-                is_success = info0.get("is_success", False)
-                is_success = bool(np.asarray(is_success).reshape(-1)[0]) if isinstance(is_success, (np.ndarray, list, tuple)) else bool(is_success)
+                # Handle Gymnasium final_info for success tracking
+                fi = infos[0].get("final_info")
+                if fi is not None and "is_success" in fi:
+                    is_success = float(fi["is_success"])
+                else:
+                    is_success = float(infos[0].get("is_success", 0.0))
 
-                if is_success:
-                    success_count += 1
+                success_count += int(is_success > 0.5)
+                rewards.append(ep_reward)
+        
+        # VecEnv auto-resets, obs is already fresh
+        if (ep + 1) % 10 == 0:
+            logging.info(f"  Evaluated {ep+1}/{n_episodes}...")
 
-                total_rewards.append(float(episode_reward))
-                episode_lengths.append(int(step_count))
-
-                if (ep + 1) % 10 == 0:
-                    logging.info(
-                        f"Episode {ep+1}/{n_episodes}: Reward={episode_reward:.3f}, "
-                        f"Steps={step_count}, Success={is_success}"
-                    )
-                break
-
-    # Aggregate stats
-    success_rate = success_count / n_episodes if n_episodes > 0 else 0.0
-    avg_reward = float(np.mean(total_rewards)) if total_rewards else 0.0
-    std_reward = float(np.std(total_rewards)) if total_rewards else 0.0
-    avg_length = float(np.mean(episode_lengths)) if episode_lengths else 0.0
-
+    success_rate = success_count / n_episodes
+    mean_reward = np.mean(rewards)
+    std_reward = np.std(rewards)
+    
     logging.info("=" * 60)
-    logging.info("FINAL EVALUATION RESULTS:")
-    logging.info(f"  Episodes: {n_episodes}")
-    logging.info(f"  Success rate: {success_rate:.1%} ({success_count}/{n_episodes})")
-    logging.info(f"  Average reward: {avg_reward:.3f} ± {std_reward:.3f}")
-    logging.info(f"  Average episode length: {avg_length:.1f} steps")
-    if total_rewards:
-        logging.info(f"  Best reward: {max(total_rewards):.3f}")
-        logging.info(f"  Worst reward: {min(total_rewards):.3f}")
+    logging.info(f"📊 Success Rate: {success_rate:.1%}")
+    logging.info(f"📊 Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
     logging.info("=" * 60)
-
+    
     eval_env.close()
 
+
+# ============================================================================
+#                                MAIN
+# ============================================================================
 
 def main():
     # Setup logging first
     logging.basicConfig(
         level=logging.INFO, 
-        format="%(asctime)s — %(levelname)s — %(message)s",
+        format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(),
             logging.FileHandler("training.log")
@@ -524,7 +678,7 @@ def main():
     
     # Check if config file exists
     if not os.path.exists(args.config):
-        logging.error(f"Config file not found: {args.config}")
+        logging.error(f"Config not found: {args.config}")
         return
     
     cfg = load_config(args.config)
@@ -534,12 +688,13 @@ def main():
     logging.info(f"Config: {args.config}")
     
     try:
-        train(cfg)
+        train(cfg, resume=args.resume)
         evaluate(cfg)
         logging.info("Training and evaluation completed successfully!")
     except Exception as e:
         logging.error(f"Training failed with error: {e}")
         raise
+
 
 if __name__ == "__main__":
     main()
