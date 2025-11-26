@@ -401,9 +401,9 @@ def train(cfg: Dict[str, Any]) -> None:
 
     env.close()
 
-# ... rest of the code remains the same (evaluate function and main)
+
 def evaluate(cfg: Dict[str, Any]) -> None:
-    """Enhanced evaluation with detailed statistics, no VecNormalize double-wrap"""
+    """Enhanced evaluation with detailed statistics, fixed for SB3 VecEnv API"""
     if not cfg.get("evaluation", {}).get("enabled", False):
         logging.info("Evaluation disabled in config; skipping.")
         return
@@ -453,22 +453,22 @@ def evaluate(cfg: Dict[str, Any]) -> None:
     episode_lengths: list[int] = []
 
     for ep in range(n_episodes):
-        obs, _ = eval_env.reset()
+        # VecEnv.reset() returns only obs
+        obs = eval_env.reset()
         episode_reward = 0.0
         step_count = 0
 
         while True:
             action, _ = model.predict(obs, deterministic=deterministic)
-            obs, reward, terminated, truncated, infos = eval_env.step(action)
+            # VecEnv.step() returns 4 values: obs, rewards, dones, infos
+            obs, rewards, dones, infos = eval_env.step(action)
 
             # Convert vectorized returns to scalars
-            r = float(np.asarray(reward).reshape(-1)[0])
+            r = float(np.asarray(rewards).reshape(-1)[0])
             episode_reward += r
             step_count += 1
 
-            term = bool(np.asarray(terminated).reshape(-1)[0])
-            trunc = bool(np.asarray(truncated).reshape(-1)[0])
-            done = term or trunc
+            done = bool(np.asarray(dones).reshape(-1)[0])
 
             if done:
                 info0 = infos[0] if isinstance(infos, (list, tuple)) else infos

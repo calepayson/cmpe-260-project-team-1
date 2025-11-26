@@ -15,7 +15,7 @@ env:
   n_envs: 4                 # Number of parallel envs for training
   env_kwargs:
     max_episode_steps: 50
-#    reward_type: "dense"     # Dense reward speeds up training
+    reward_type: "dense"     # Dense reward speeds up training
 
 # ----------------------------------------------------------------------
 # Vector Normalization
@@ -59,7 +59,7 @@ algo:
 # Training Configuration
 # ----------------------------------------------------------------------
 training:
-  total_timesteps: 500000
+  total_timesteps: 100000
 
   # Logging
   tensorboard_log: "./logs/ppo_fetch_tb/"
@@ -85,9 +85,10 @@ evaluation:
   n_eval_episodes: 20
   deterministic: true
   render: false
-  eval_freq_timesteps: 4096   # Align with PPO rollout (n_envs × n_steps)
+  eval_freq_timesteps: 10000   # Align with PPO rollout (n_envs × n_steps)
   eval_env_kwargs:
-    max_episode_steps: 100
+    max_episode_steps: 50
+    reward_type : "dense"
 
 # ----------------------------------------------------------------------
 # Curriculum Learning (Optional)
