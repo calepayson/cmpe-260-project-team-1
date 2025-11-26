@@ -1,0 +1,69 @@
+# configs/td3_ant.yaml
+seed: 42
+algo_name: "td3"
+
+env:
+  id: "Ant-v5"
+  n_envs: 8
+  env_kwargs: {}
+
+vec_normalize:
+  enabled: true
+  norm_obs: true
+  norm_reward: true
+  clip_obs: 10.0
+  gamma: 0.99
+
+algo:
+  policy: "MlpPolicy"
+
+  # Exploration
+  action_noise_sigma: 0.1
+
+  # Learning
+  learning_rate: 0.001
+  buffer_size: 1000000
+  learning_starts: 25000
+  batch_size: 256
+  tau: 0.005
+  gamma: 0.99
+
+  # Update cadence
+  train_freq: [1, "step"]
+  gradient_steps: -1
+
+  # TD3 specifics
+  policy_delay: 2
+  target_policy_noise: 0.2
+  target_noise_clip: 0.5
+
+  # Networks
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]
+      qf: [256, 256]
+    activation_fn: "relu"
+
+  verbose: 1
+
+training:
+  total_timesteps: 1000000
+  tensorboard_log: "./logs/td3_ant_tb/"
+
+  checkpoint:
+    enabled: true
+    save_freq_timesteps: 50000
+    save_path: "./models/td3_ant/"
+    name_prefix: "td3_ant"
+
+  resume: false
+  resume_model_path: "./models/td3_ant/final_model.zip"
+  resume_vecnormalize_path: "./models/td3_ant/vec_normalize_stats.pkl"
+
+evaluation:
+  enabled: true
+  n_eval_episodes: 20
+  deterministic: true
+  render: false
+  eval_freq_timesteps: 1250
+  eval_env_kwargs: {}
