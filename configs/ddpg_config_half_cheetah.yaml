@@ -1,0 +1,39 @@
+seed: 42
+algo_name: "ddpg"
+
+env:
+  id: "HalfCheetah-v5"
+  n_envs: 8
+  env_kwargs: {}
+
+vec_normalize:
+  enables: true
+  norm_obs: true
+  norm_reward: true
+  clip_obs: 10.0
+  gamma: 0.99
+
+algo:
+  # Fill in
+
+training:
+  total_timesteps: 1_000_00
+  tensorboard_log: "./logs/ddpg_half_cheetah_tb/"
+
+  checkpoint:
+    enabled: true
+    save_freq_timesteps: 10_000
+    save_path: "./models/ddpg_half_cheetah"
+    name_prefix: "ddpg_hc"
+
+  resume: false
+  resume_model_path: "./models/ddpg_half_cheetah/final_model.zip"
+  resume_vecnormalize_path: "./models/ddpg_half_cheetah/vec_normalize_stats.pk1"
+
+evaluation:
+  enabled: true
+  n_eval_episodes: 20
+  deterministic: true
+  render: false
+  eval_freq_timesteps: 10_000
+  eval_env_kwargs: {}
