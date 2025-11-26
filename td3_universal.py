@@ -107,7 +107,7 @@ class RichDashboardCallback(BaseCallback):
         best_r = np.max(self.ep_rewards) if self.ep_rewards else 0.0
         mean_l = np.mean(self.ep_lengths[-50:]) if self.ep_lengths else 0.0
         
-        table = Table(title=f"TD3 HalfCheetah Training ({progress:.1%})", box=None)
+        table = Table(title=f"TD3 Training ({progress:.1%})", box=None)
         table.add_column("Metric", style="cyan", no_wrap=True)
         table.add_column("Value", style="magenta")
         
