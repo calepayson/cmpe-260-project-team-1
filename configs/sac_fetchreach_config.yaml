@@ -33,10 +33,10 @@ algo:
   policy: "MultiInputPolicy"
 
   # SAC-specific hyperparameters
-  learning_rate: 3.0e-4
-  buffer_size: 1000000
-  batch_size: 256
-  tau: 0.02
+  learning_rate: 3.0e-4 #from paper
+  buffer_size: 1000000 #from paper
+  batch_size: 256 #from paper
+  tau: 0.005 #from paper
   gamma: 0.99 #taken from paper
 
   # Training schedule
@@ -58,7 +58,7 @@ algo:
     net_arch:
       pi: [256, 256]
       qf: [256, 256]
-    activation_fn: "tanh"    # More stable for control tasks
+    activation_fn: "ReLu"    # More stable for control tasks
 
   verbose: 1
 

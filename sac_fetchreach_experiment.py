@@ -5,6 +5,9 @@ Stable SAC training for FetchReach-v4 with collapse prevention
 """
 
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import yaml
 import argparse
 import logging
@@ -12,10 +15,13 @@ import time
 from typing import Any, Dict, Optional
 import matplotlib.pyplot as plt
 
+import torch
+torch.set_num_threads(1)
+
 import gymnasium as gym
 import gymnasium_robotics  # ensure the robotics envs are registered
+gym.register_envs(gymnasium_robotics)
 import numpy as np
-import torch
 from stable_baselines3 import SAC, HerReplayBuffer
 from stable_baselines3.her.goal_selection_strategy import GoalSelectionStrategy
 from stable_baselines3.common.env_util import make_vec_env
