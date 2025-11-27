@@ -165,7 +165,10 @@ class SuccessRateCallback(BaseCallback):
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
         for info in infos:
-            if "is_success" in info:
+            final_info = info.get("final_info")
+            if final_info is not None and "is_success" in final_info:
+                self.successes.append(float(final_info["is_success"]))
+            elif "is_success" in info:
                 self.successes.append(float(info["is_success"]))
 
         if self.n_calls % self.log_freq == 0 and len(self.successes) >= 10:
@@ -562,12 +565,10 @@ def evaluate(cfg: Dict[str, Any]) -> None:
     success_count = 0
     rewards = []
 
-    obs = eval_env.reset()
-
-    if isinstance(obs, tuple):
-        obs, _ = obs
-
     for ep in range(n_episodes):
+        obs = eval_env.reset()
+        if isinstance(obs, tuple):
+            obs, _ = obs
         done = False
         ep_reward = 0.0
 
@@ -579,7 +580,6 @@ def evaluate(cfg: Dict[str, Any]) -> None:
             done = done_arr[0]
 
             if done:
-                # Handle Gymnasium final_info for success tracking
                 fi = infos[0].get("final_info")
                 if fi is not None and "is_success" in fi:
                     is_success = float(fi["is_success"])
