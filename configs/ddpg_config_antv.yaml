@@ -19,7 +19,7 @@ algo:
   action_noise_sigma: 0.1
 
   # Learning
-  learning_rate: 0.001
+  learning_rate: 0.0003
   buffer_size: 1000000
   learning_starts: 2500
   batch_size: 256
@@ -56,4 +56,4 @@ evaluation:
   deterministic: true
   render: false
   eval_freq_timesteps: 1250
-  eval_env_kwargs
+  eval_env_kwargs: {}
