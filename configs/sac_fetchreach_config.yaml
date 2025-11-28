@@ -58,7 +58,7 @@ algo:
     net_arch:
       pi: [256, 256]
       qf: [256, 256]
-    activation_fn: "ReLu"    # More stable for control tasks
+    activation_fn: "relu"    # More stable for control tasks
 
   verbose: 1
 
