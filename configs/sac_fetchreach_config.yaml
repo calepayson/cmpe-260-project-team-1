@@ -15,7 +15,7 @@ env:
   n_envs: 4                 # Number of parallel envs for training
   env_kwargs:
     max_episode_steps: 50
-    reward_type: "dense"     # Dense reward speeds up training
+    reward_type: "sparse"     # Dense reward speeds up training
 
 # ----------------------------------------------------------------------
 # Vector Normalization
