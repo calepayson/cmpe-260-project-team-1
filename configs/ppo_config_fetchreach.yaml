@@ -15,7 +15,7 @@ env:
   n_envs: 4                 # Number of parallel envs for training
   env_kwargs:
     max_episode_steps: 50
-    reward_type: "dense"     # Dense reward speeds up training
+    reward_type: "sparse"     # Dense reward speeds up training
 
 # ----------------------------------------------------------------------
 # Vector Normalization
@@ -88,7 +88,7 @@ evaluation:
   eval_freq_timesteps: 10000   # Align with PPO rollout (n_envs × n_steps)
   eval_env_kwargs:
     max_episode_steps: 50
-    reward_type : "dense"
+    reward_type : "sparse"
 
 # ----------------------------------------------------------------------
 # Curriculum Learning (Optional)
