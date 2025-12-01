@@ -1,38 +1,28 @@
 # config.yaml
 # Production-ready PPO configuration for FetchReach-v4 with SB3
 
-# ----------------------------------------------------------------------
-# Global Settings
-# ----------------------------------------------------------------------
 seed: 42
 algo_name: "ppo"
 
-# ----------------------------------------------------------------------
-# Environment Configuration
-# ----------------------------------------------------------------------
+
 env:
-  id: "FetchReach-v4"        # Requires gymnasium_robotics
-  n_envs: 4                 # Number of parallel envs for training
+  id: "FetchReach-v4"      
+  n_envs: 4                
   env_kwargs:
     max_episode_steps: 50
-    reward_type: "dense"     # Dense reward speeds up training
+    reward_type: "dense"    
 
-# ----------------------------------------------------------------------
-# Vector Normalization
-# ----------------------------------------------------------------------
+
 vec_normalize:
   enabled: true
   norm_obs: true
-  norm_reward: false         # False for sparse/dense rewards
+  norm_reward: false         
   clip_obs: 10.0
 
-# ----------------------------------------------------------------------
-# Algorithm (PPO) Configuration
-# ----------------------------------------------------------------------
+
 algo:
   policy: "MultiInputPolicy"
 
-  # Rollout and optimization settings
   n_steps: 1024
   batch_size: 256
   n_epochs: 4
@@ -51,13 +41,10 @@ algo:
     net_arch:
       pi: [256, 256]
       vf: [256, 256]
-    activation_fn: "tanh"    # More stable for control tasks
+    activation_fn: "tanh"    
 
   verbose: 1
 
-# ----------------------------------------------------------------------
-# Training Configuration
-# ----------------------------------------------------------------------
 training:
   total_timesteps: 100000
 
@@ -77,21 +64,16 @@ training:
   resume_model_path: "./models/ppo_fetch/ppo_fetch_reach_1000000_steps.zip"
   resume_vecnormalize_path: "./models/ppo_fetch/vec_normalize_stats.pkl"
 
-# ----------------------------------------------------------------------
-# Evaluation Configuration
-# ----------------------------------------------------------------------
+
 evaluation:
   enabled: true
   n_eval_episodes: 20
   deterministic: true
   render: false
-  eval_freq_timesteps: 10000   # Align with PPO rollout (n_envs × n_steps)
+  eval_freq_timesteps: 10000   
   eval_env_kwargs:
     max_episode_steps: 50
     reward_type : "dense"
 
-# ----------------------------------------------------------------------
-# Curriculum Learning (Optional)
-# ----------------------------------------------------------------------
 curriculum:
   enabled: false
