@@ -1,0 +1,102 @@
+seed: 42
+algo_name: "sac"
+
+env:
+  id: "Ant-v5"
+  n_envs: 4                # Ant is more complex than HalfCheetah, 4-8 envs is optimal
+  env_kwargs: 
+    # Ant-v5 specific kwargs for stability
+    exclude_current_positions_from_observation: true  # Helps with generalization
+    # reset_noise_scale: 0.1  # Optional: add noise to initial states
+
+vec_normalize:
+  enabled: true
+  norm_obs: true
+  norm_reward: true        # CRITICAL: Ant has higher variance rewards than HalfCheetah
+  clip_obs: 10.0
+  gamma: 0.99
+
+algo:
+  policy: "MlpPolicy"      # Use MlpPolicy for Box observation space
+
+  # Learning - Ant is harder and needs more careful tuning
+  learning_rate: 0.0001    # 3e-4 is standard and stable for Ant
+  buffer_size: 1000000     # Large buffer for diverse experience
+  learning_starts: 10000   # Start learning after sufficient exploration
+  batch_size: 256          # Standard batch size works well
+  tau: 0.005               # Soft update coefficient
+  gamma: 0.99              # Standard discount factor
+
+  # Update cadence - Ant benefits from more gradual updates
+  train_freq: [1, "step"]  # Update every step
+  gradient_steps: 1        # 1:1 ratio is stable for Ant
+  
+  # SAC-specific entropy tuning
+  # Ant has 8 action dimensions, so auto entropy = -8
+  ent_coef: "auto"         # Automatic entropy tuning (HIGHLY RECOMMENDED for Ant)
+  target_entropy: "auto"   # Auto: -dim(action_space) = -8 for Ant
+  
+  # Alternative manual tuning (if auto doesn't work):
+  # ent_coef: 0.1          # Lower than default for more exploitation
+  # For Ant, manual ent_coef between 0.05-0.2 can work
+  
+  # Networks - Ant needs larger networks due to complexity
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]       # Policy network (can go to [400, 300] for better performance)
+      qf: [256, 256]       # Q-function network (can go to [400, 300])
+    activation_fn: "relu"  # ReLU is standard, but try 'elu' for potentially smoother learning
+    log_std_init: -3       # Initial log std (-3 to -2 range is good for Ant)
+    # use_sde: false       # State Dependent Exploration (usually false)
+    
+    # Optional advanced settings:
+    # n_critics: 2         # Number of critic networks (default is 2 for SAC)
+    # share_features_extractor: false  # Whether to share features between policy and value
+
+  verbose: 1
+
+training:
+  total_timesteps: 1000000  # Ant needs MORE timesteps than HalfCheetah (3M is good baseline)
+  tensorboard_log: "./logs/sac_ant_tb/"
+
+  checkpoint:
+    enabled: true
+    save_freq_timesteps: 100000  # Save every 100k steps (Ant trains slower)
+    save_path: "./models/sac_ant/"
+    name_prefix: "sac_ant"
+
+  resume: false
+  resume_model_path: "./models/sac_ant/final_model.zip"
+  resume_vecnormalize_path: "./models/sac_ant/vec_normalize_stats.pkl"
+
+evaluation:
+  enabled: true
+  n_eval_episodes: 20
+  deterministic: true      # Use deterministic policy for evaluation
+  render: false
+  eval_freq_timesteps: 2500  # Evaluate every 25k steps (less frequent than HalfCheetah)
+  eval_env_kwargs: 
+    exclude_current_positions_from_observation: true
+
+# ============================================================================
+# PERFORMANCE EXPECTATIONS FOR ANT-V5:
+# ============================================================================
+# - Warmup (0-500k steps): ~500-1500 reward
+# - Learning (500k-1.5M steps): ~1500-3500 reward  
+# - Good Performance (1.5M-3M steps): ~3500-5500 reward
+# - Expert/Solved (3M+ steps): ~5500-6500 reward
+#
+# Ant-v5 is significantly harder than HalfCheetah-v5:
+# - 8 action dimensions (vs 6 for HalfCheetah)
+# - More complex contact dynamics
+# - Quadruped locomotion is inherently less stable
+# - Needs 2-3x more training steps
+#
+# TUNING TIPS:
+# 1. If agent falls frequently early: increase learning_starts to 20000
+# 2. If learning is unstable: reduce learning_rate to 0.0001
+# 3. If agent is too cautious: increase ent_coef manually to 0.2-0.3
+# 4. If agent is too aggressive: decrease ent_coef to 0.05-0.1
+# 5. For faster learning (with more compute): increase n_envs to 8-16
+# 6. For better final performance: use larger networks [400, 300] and train to 5M steps
+# ============================================================================

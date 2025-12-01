@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-td3_her_fetchpush.py
-PERFORMANCE-OPTIMIZED TD3 + HER training script for FetchPush-v2.
-Includes critical thread management for maximum FPS.
+sac_halfcheetah_optimized.py
+PERFORMANCE-OPTIMIZED SAC training script for HalfCheetah-v4/v5.
+Converted from TD3 with SAC-specific adaptations.
 """
 
 # ============================================================================
@@ -19,7 +19,7 @@ import yaml
 import argparse
 import logging
 import time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
@@ -28,18 +28,18 @@ import torch
 torch.set_num_threads(1)
 
 import gymnasium as gym
-import gymnasium_robotics
-
-# Register gymnasium robotics environments
-gym.register_envs(gymnasium_robotics)
+try:
+    import gymnasium_robotics
+    gym.register_envs(gymnasium_robotics)
+except ImportError:
+    pass
 
 from rich.live import Live
 from rich.table import Table
 from rich.console import Console
 from rich.panel import Panel
 
-from stable_baselines3 import TD3
-from stable_baselines3.her import HerReplayBuffer
+from stable_baselines3 import SAC
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import VecNormalize, VecEnv, DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.callbacks import (
@@ -51,8 +51,7 @@ from stable_baselines3.common.callbacks import (
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise
-from stable_baselines3.common.noise import VectorizedActionNoise
+
 # ============================================================================
 #                                CUSTOM CALLBACKS
 # ============================================================================
@@ -68,22 +67,24 @@ class SyncEvalCallback(EvalCallback):
             if hasattr(self.training_env, 'obs_rms') and hasattr(self.eval_env, 'obs_rms'):
                 self.eval_env.obs_rms = self.training_env.obs_rms.copy()
             
-            # Sync Reward Statistics (useful for PPO/TD3 value estimation, though less critical for Eval)
+            # Sync Reward Statistics
             if hasattr(self.training_env, 'ret_rms') and hasattr(self.eval_env, 'ret_rms'):
                 self.eval_env.ret_rms = self.training_env.ret_rms.copy()
                 
         return super()._on_step()
     
 class RichDashboardCallback(BaseCallback):
-    """Live training dashboard using Rich library"""
+    """
+    Live training dashboard using Rich library.
+    Adapted for SAC Locomotion training.
+    """
     
     def __init__(self, total_timesteps: int, check_freq: int = 1000, verbose: int = 0):
         super().__init__(verbose)
         self.total_timesteps = total_timesteps
-        self.check_freq = check_freq  # Reduced update frequency for better performance
+        self.check_freq = check_freq
         self.ep_rewards = []
         self.ep_lengths = []
-        self.successes = []
         self.start_time = None
         self.live = None
         self.console = Console()
@@ -91,24 +92,15 @@ class RichDashboardCallback(BaseCallback):
     def _on_training_start(self) -> None:
         self.start_time = time.time()
         self.live = Live(self.generate_table(), refresh_per_second=2, console=self.console)
-        self.live.start()  # Reduced from 4 to 2 Hz for performance
+        self.live.start()
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
         for info in infos:
-            # Episode tracking
             if "episode" in info:
                 self.ep_rewards.append(info["episode"]["r"])
                 self.ep_lengths.append(info["episode"]["l"])
             
-            # Handle Gymnasium final_info first
-            final_info = info.get("final_info")
-            if final_info is not None and "is_success" in final_info:
-                self.successes.append(float(final_info["is_success"]))
-            elif "is_success" in info:
-                self.successes.append(float(info["is_success"]))
-
-        # Periodic UI update
         if self.n_calls % self.check_freq == 0:
             self.live.update(self.generate_table())
 
@@ -123,9 +115,8 @@ class RichDashboardCallback(BaseCallback):
         mean_r = np.mean(self.ep_rewards[-50:]) if self.ep_rewards else 0.0
         best_r = np.max(self.ep_rewards) if self.ep_rewards else 0.0
         mean_l = np.mean(self.ep_lengths[-50:]) if self.ep_lengths else 0.0
-        success_rate = np.mean(self.successes[-100:]) if self.successes else 0.0
         
-        table = Table(title=f"TD3 + HER Training ({progress:.1%})", box=None)
+        table = Table(title=f"SAC Training ({progress:.1%})", box=None)
         table.add_column("Metric", style="cyan", no_wrap=True)
         table.add_column("Value", style="magenta")
         
@@ -133,49 +124,25 @@ class RichDashboardCallback(BaseCallback):
         table.add_row("FPS", f"{fps}")
         table.add_row("Mean Reward (50 ep)", f"{mean_r:.2f}")
         table.add_row("Best Reward", f"{best_r:.2f}")
-        table.add_row("Success Rate (100 ep)", f"{success_rate:.1%}")
+        table.add_row("Avg Ep Length", f"{mean_l:.1f}")
         
-        # Status indicator
-        if success_rate > 0.8:
-            status = "[bold green]SOLVED[/bold green]"
-        elif success_rate > 0.5:
+        if mean_r > 3500:
+            status = "[bold green]ELITE[/bold green]"
+        elif mean_r > 2000:
             status = "[green]EXCELLENT[/green]"
-        elif success_rate > 0.2:
+        elif mean_r > 1000:
             status = "[yellow]IMPROVING[/yellow]"
-        elif success_rate > 0.05:
+        elif mean_r > 0:
             status = "[yellow]LEARNING[/yellow]"
         else:
-            status = "[red]EXPLORING[/red]"
+            status = "[red]WARMUP[/red]"
         
         table.add_row("Status", status)
-        return Panel(table, title="FetchPush Training", border_style="blue")
+        return Panel(table, title="SAC Locomotion Training", border_style="blue")
 
     def _on_training_end(self) -> None:
         if self.live:
             self.live.stop()
-
-
-class SuccessRateCallback(BaseCallback):
-    """Track and log success rate"""
-    
-    def __init__(self, log_freq: int = 2000, verbose: int = 0):
-        super().__init__(verbose)
-        self.log_freq = log_freq
-        self.successes = []
-
-    def _on_step(self) -> bool:
-        infos = self.locals.get("infos", [])
-        for info in infos:
-            if "is_success" in info:
-                self.successes.append(float(info["is_success"]))
-
-        if self.n_calls % self.log_freq == 0 and len(self.successes) >= 10:
-            recent_sr = np.mean(self.successes[-100:])
-            all_time_sr = np.mean(self.successes)
-            
-            self.logger.record("train/success_rate_recent", recent_sr)
-            self.logger.record("train/success_rate_all", all_time_sr)
-        return True
 
 
 # ============================================================================
@@ -183,8 +150,8 @@ class SuccessRateCallback(BaseCallback):
 # ============================================================================
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train TD3+HER on FetchPush")
-    parser.add_argument("--config", type=str, default="configs/td3_fetchpush.yaml", help="Path to config YAML")
+    parser = argparse.ArgumentParser(description="Train SAC on HalfCheetah")
+    parser.add_argument("--config", type=str, default="configs/sac_halfcheetah.yaml", help="Path to config YAML")
     parser.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     return parser.parse_args()
 
@@ -238,13 +205,11 @@ def make_train_env(cfg: Dict[str, Any]) -> VecEnv:
     n_envs = env_cfg.get("n_envs", 1)
     set_random_seed(seed)
 
-    # SPEED UP: Use SubprocVecEnv for parallel environments (faster than DummyVecEnv)
     vec_env_cls = SubprocVecEnv if n_envs > 1 else DummyVecEnv
     
     if n_envs > 1:
         logging.info(f"🚀 Using {n_envs} parallel environments with SubprocVecEnv")
 
-    # Create base vectorized environment
     env = make_vec_env(
         env_cfg["id"],
         n_envs=n_envs,
@@ -254,14 +219,13 @@ def make_train_env(cfg: Dict[str, Any]) -> VecEnv:
         vec_env_cls=vec_env_cls,
     )
     
-    # CRITICAL FIX: Apply VecNormalize if enabled in config
     vec_norm_cfg = cfg.get("vec_normalize", {})
     if vec_norm_cfg.get("enabled", False):
-        logging.info("🔧 Applying VecNormalize wrapper")
+        logging.info("🔧 Applying VecNormalize wrapper (Obs + Reward)")
         env = VecNormalize(
             env,
             norm_obs=vec_norm_cfg.get("norm_obs", True),
-            norm_reward=vec_norm_cfg.get("norm_reward", False),
+            norm_reward=vec_norm_cfg.get("norm_reward", True),
             clip_obs=vec_norm_cfg.get("clip_obs", 10.0),
             gamma=vec_norm_cfg.get("gamma", 0.99),
             training=True
@@ -288,19 +252,17 @@ def make_eval_env(cfg: Dict[str, Any], train_env: Optional[VecEnv] = None) -> Ve
         vec_env_cls=DummyVecEnv,
     )
     
-    # Apply VecNormalize to eval env if training uses it
     vec_norm_cfg = cfg.get("vec_normalize", {})
     if vec_norm_cfg.get("enabled", False):
         eval_env = VecNormalize(
             eval_env,
             norm_obs=vec_norm_cfg.get("norm_obs", True),
-            norm_reward=False,  # Never normalize rewards during evaluation
+            norm_reward=False,
             clip_obs=vec_norm_cfg.get("clip_obs", 10.0),
             gamma=vec_norm_cfg.get("gamma", 0.99),
-            training=False  # Important: disable training mode for eval
+            training=False
         )
         
-        # Sync normalization stats from training env if available
         if train_env is not None and isinstance(train_env, VecNormalize):
             eval_env.obs_rms = train_env.obs_rms
             eval_env.ret_rms = train_env.ret_rms
@@ -318,93 +280,33 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     train_cfg = cfg["training"]
     algo_cfg = cfg["algo"]
     
-    # Log performance settings
     logging.info("=" * 60)
     logging.info("PERFORMANCE CONFIGURATION")
     logging.info("=" * 60)
     logging.info(f"OMP_NUM_THREADS: {os.environ.get('OMP_NUM_THREADS', 'Not set')}")
     logging.info(f"PyTorch threads: {torch.get_num_threads()}")
-    logging.info(f"MuJoCo GL: {os.environ.get('MUJOCO_GL', 'default')}")
     logging.info("=" * 60)
     
-    # Configure logger
     logger = configure(
         folder=train_cfg["tensorboard_log"],
         format_strings=["stdout", "tensorboard", "csv"]
     )
     
-    # Create Env
     env = make_train_env(cfg)
     logging.info(f"✓ Created {env.num_envs} training environment(s)")
     
-    # Get action space dimension from unwrapped env
-    if isinstance(env, VecNormalize):
-        base_env = env.venv
-        if isinstance(base_env, SubprocVecEnv):
-            # For SubprocVecEnv, get action space from the environment spec
-            n_actions = env.action_space.shape[-1]
-        else:
-            n_actions = base_env.action_space.shape[-1]
-    else:
-        n_actions = env.action_space.shape[-1]
+    # SAC uses automatic entropy tuning, no action noise needed
+    logging.info("🎲 SAC uses automatic entropy tuning (no explicit action noise)")
     
-    # ------------------------------------------------------------------------
-    # CRITICAL FIX: Smart Action Noise Configuration
-    # ------------------------------------------------------------------------
-    noise_sigma = algo_cfg.pop("action_noise_sigma", 0.2)
-    sigma_vec = noise_sigma * np.ones(n_actions)
-    
-    env_id = cfg["env"]["id"]
-    
-    # Only mask gripper for tasks that manipulate objects
-    # FetchPush doesn't need gripper masking since it just pushes
-    needs_gripper_lock = any(task in env_id for task in ["Pick", "Reach", "Place"])
-    
-    if needs_gripper_lock and n_actions >= 4:
-        sigma_vec[3] = 0.0
-        logging.info("🛡️  Gripper noise locked for object manipulation task")
-    else:
-        logging.info(f"🎯 Full action noise enabled for {env_id}")
-    
-    # Use OU noise for pushing tasks (smoother exploration)
-    # Use Gaussian noise for reaching/picking tasks
-    if "Push" in env_id or "Slide" in env_id:
-        logging.info("🌊 Using Ornstein-Uhlenbeck Noise (smooth exploration for pushing)")
-        action_noise = OrnsteinUhlenbeckActionNoise(
-            mean=np.zeros(n_actions),
-            sigma=sigma_vec,
-            dt=1e-2,
-            theta=0.15
-        )
-    else:
-        logging.info("🎲 Using Normal (Gaussian) Noise")
-        action_noise = NormalActionNoise(
-            mean=np.zeros(n_actions),
-            sigma=sigma_vec
-        )
-    
-    base_noise = action_noise  # your OU or Normal
-    action_noise = VectorizedActionNoise(base_noise, n_envs=env.num_envs)
-
-    # HER setup
-    use_her = algo_cfg.pop("use_her", False)
-    her_kwargs = algo_cfg.pop("her_kwargs", {})
-    replay_buffer_class = HerReplayBuffer if use_her else None
-    
-    # Network architecture safety check
+    # Network architecture
     policy_kwargs = algo_cfg.pop("policy_kwargs", {})
     net_arch = policy_kwargs.get("net_arch", {})
     
-    # SPEED UP: Recommend smaller networks for faster training
     if isinstance(net_arch, dict) and "pi" in net_arch:
         total_params = sum(net_arch["pi"])
         if total_params > 700:
-            logging.info(f"💡 Using smaller network [{net_arch['pi']}] for faster training")
-        if net_arch["pi"][0] > 512:
-            logging.warning("⚠️  Oversized network detected! Overriding to [400, 300]")
-            policy_kwargs["net_arch"] = dict(pi=[400, 300], qf=[400, 300])
+            logging.info(f"💡 Using network [{net_arch['pi']}] for SAC")
 
-    # Resolve activation function
     if "activation_fn" in policy_kwargs and isinstance(policy_kwargs["activation_fn"], str):
         policy_kwargs["activation_fn"] = resolve_activation_fn(policy_kwargs["activation_fn"])
 
@@ -412,30 +314,26 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     if resume or train_cfg.get("resume", False):
         resume_path = train_cfg.get("resume_model_path")
         logging.info(f"📂 Resuming from {resume_path}")
-        model = TD3.load(resume_path, env=env, device="auto", 
-                         custom_objects={"action_noise": action_noise})
+        model = SAC.load(resume_path, env=env, device="auto")
         
-        # Load VecNormalize stats if resuming
         if isinstance(env, VecNormalize):
             vec_norm_path = train_cfg.get("resume_vecnormalize_path")
             if vec_norm_path and os.path.exists(vec_norm_path):
                 env = VecNormalize.load(vec_norm_path, env)
                 logging.info(f"✓ Loaded VecNormalize stats from {vec_norm_path}")
     else:
-        # Convert list to tuple for train_freq if needed
+        policy_type = algo_cfg.pop("policy", "MlpPolicy")
+        
         if "train_freq" in algo_cfg and isinstance(algo_cfg["train_freq"], list):
             algo_cfg["train_freq"] = tuple(algo_cfg["train_freq"])
 
-        model = TD3(
-            policy=algo_cfg["policy"],
+        model = SAC(
+            policy=policy_type,
             env=env,
-            action_noise=action_noise,
             verbose=algo_cfg.get("verbose", 1),
             tensorboard_log=train_cfg["tensorboard_log"],
             policy_kwargs=policy_kwargs,
-            replay_buffer_class=replay_buffer_class,
-            replay_buffer_kwargs=her_kwargs,
-            **{k: v for k, v in algo_cfg.items() if k not in ["policy", "verbose"]}
+            **{k: v for k, v in algo_cfg.items() if k not in ["verbose"]}
         )
 
     model.set_logger(logger)
@@ -443,10 +341,8 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     # Callbacks
     callbacks = [
         RichDashboardCallback(total_timesteps=train_cfg["total_timesteps"]),
-        SuccessRateCallback(log_freq=2000),
     ]
     
-    # Checkpointing
     ckpt_cfg = train_cfg["checkpoint"]
     if ckpt_cfg.get("enabled", True):
         callbacks.append(CheckpointCallback(
@@ -455,7 +351,6 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
             name_prefix=ckpt_cfg["name_prefix"]
         ))
     
-    # Eval Callback
     if cfg.get("evaluation", {}).get("enabled", True):
         eval_env = make_eval_env(cfg, env)
         callbacks.append(SyncEvalCallback(
@@ -468,13 +363,12 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
             render=False
         ))
     
-    # Learn
-    logging.info(f"🚀 Starting training for {train_cfg['total_timesteps']:,} timesteps")
+    logging.info(f"🚀 Starting SAC training for {train_cfg['total_timesteps']:,} timesteps")
     logging.info(f"⚡ SPEED OPTIMIZATIONS ACTIVE:")
     logging.info(f"   - Parallel Envs: {env.num_envs}")
     logging.info(f"   - Gradient Steps: {model.gradient_steps}")
     logging.info(f"   - Batch Size: {model.batch_size}")
-    logging.info(f"   - Network Size: {policy_kwargs.get('net_arch', 'default')}")
+    logging.info(f"   - Entropy Tuning: {'Auto' if model.ent_coef == 'auto' else model.ent_coef}")
     
     try:
         model.learn(
@@ -488,12 +382,10 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
         logging.error(f"❌ Training crashed: {e}", exc_info=True)
         raise
         
-    # Save Final Model and VecNormalize stats
     final_path = os.path.join(ckpt_cfg["save_path"], "final_model")
     model.save(final_path)
     logging.info(f"💾 Saved final model: {final_path}")
     
-    # Save VecNormalize stats if used
     if isinstance(env, VecNormalize):
         vec_norm_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
         env.save(vec_norm_path)
@@ -507,7 +399,7 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
 # ============================================================================
 
 def evaluate(cfg: Dict[str, Any]) -> None:
-    """CORRECTED evaluation with proper reset handling"""
+    """Evaluation for HalfCheetah with SAC"""
     if not cfg.get("evaluation", {}).get("enabled", True):
         return
         
@@ -518,7 +410,6 @@ def evaluate(cfg: Dict[str, Any]) -> None:
     eval_cfg = cfg["evaluation"]
     ckpt_cfg = cfg["training"]["checkpoint"]
     
-    # Setup Env
     merged_kwargs = dict(cfg["env"].get("env_kwargs", {}))
     merged_kwargs.update(eval_cfg.get("eval_env_kwargs", {}))
     
@@ -530,7 +421,6 @@ def evaluate(cfg: Dict[str, Any]) -> None:
         wrapper_class=Monitor,
     )
     
-    # Apply VecNormalize if used in training
     vec_norm_cfg = cfg.get("vec_normalize", {})
     if vec_norm_cfg.get("enabled", False):
         vec_norm_path = os.path.join(ckpt_cfg["save_path"], "vec_normalize_stats.pkl")
@@ -549,26 +439,19 @@ def evaluate(cfg: Dict[str, Any]) -> None:
                 training=False
             )
     
-    # Load Model
     model_path = os.path.join(ckpt_cfg["save_path"], "final_model.zip")
     if not os.path.exists(model_path):
         logging.error(f"Model missing: {model_path}")
         return
 
-    model = TD3.load(model_path, env=eval_env)
+    model = SAC.load(model_path, env=eval_env)
     
     n_episodes = eval_cfg.get("n_eval_episodes", 50)
-    success_count = 0
     rewards = []
     
-    # ------------------------------------------------------------------------
-    # CRITICAL FIX: Proper reset handling for modern Gymnasium
-    # ------------------------------------------------------------------------
     obs = eval_env.reset()
-    
-    # Handle both old and new Gymnasium API
     if isinstance(obs, tuple):
-        obs, _ = obs  # New API returns (obs, info)
+        obs, _ = obs 
     
     for ep in range(n_episodes):
         done = False
@@ -582,27 +465,23 @@ def evaluate(cfg: Dict[str, Any]) -> None:
             done = done_arr[0]
             
             if done:
-                # Handle Gymnasium final_info for success tracking
-                fi = infos[0].get("final_info")
-                if fi is not None and "is_success" in fi:
-                    is_success = float(fi["is_success"])
-                else:
-                    is_success = float(infos[0].get("is_success", 0.0))
-
-                success_count += int(is_success > 0.5)
                 rewards.append(ep_reward)
         
-        # VecEnv auto-resets, obs is already fresh
         if (ep + 1) % 10 == 0:
-            logging.info(f"  Evaluated {ep+1}/{n_episodes}...")
+            logging.info(f"   Evaluated {ep+1}/{n_episodes}...")
 
-    success_rate = success_count / n_episodes
     mean_reward = np.mean(rewards)
     std_reward = np.std(rewards)
     
     logging.info("=" * 60)
-    logging.info(f"📊 Success Rate: {success_rate:.1%}")
     logging.info(f"📊 Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
+    
+    if mean_reward > 3000:
+        logging.info("🏆 RESULT: SOLVED (Elite Performance)")
+    elif mean_reward > 2000:
+        logging.info("✅ RESULT: Good Performance")
+    else:
+        logging.info("⚠️  RESULT: Needs Improvement")
     logging.info("=" * 60)
     
     eval_env.close()

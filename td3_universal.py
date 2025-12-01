@@ -61,6 +61,23 @@ from stable_baselines3.common.noise import VectorizedActionNoise
 #                                CUSTOM CALLBACKS
 # ============================================================================
 
+class SyncEvalCallback(EvalCallback):
+    """
+    Custom Callback that syncs normalization stats from 
+    Train Env to Eval Env before every evaluation.
+    """
+    def _on_step(self) -> bool:
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            # Sync Observation Statistics
+            if hasattr(self.training_env, 'obs_rms') and hasattr(self.eval_env, 'obs_rms'):
+                self.eval_env.obs_rms = self.training_env.obs_rms.copy()
+            
+            # Sync Reward Statistics (useful for PPO/TD3 value estimation, though less critical for Eval)
+            if hasattr(self.training_env, 'ret_rms') and hasattr(self.eval_env, 'ret_rms'):
+                self.eval_env.ret_rms = self.training_env.ret_rms.copy()
+                
+        return super()._on_step()
+    
 class RichDashboardCallback(BaseCallback):
     """
     Live training dashboard using Rich library.
@@ -396,7 +413,7 @@ def train(cfg: Dict[str, Any], resume: bool = False) -> None:
     # Eval Callback
     if cfg.get("evaluation", {}).get("enabled", True):
         eval_env = make_eval_env(cfg, env)
-        callbacks.append(EvalCallback(
+        callbacks.append(SyncEvalCallback(
             eval_env,
             best_model_save_path=ckpt_cfg["save_path"],
             log_path=ckpt_cfg["save_path"],
