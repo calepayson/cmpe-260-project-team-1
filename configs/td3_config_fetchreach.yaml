@@ -1,0 +1,74 @@
+# configs/td3_config.yaml  (FetchReach)
+seed: 42
+algo_name: "td3"
+
+env:
+  id: "FetchReach-v4"
+  n_envs: 8
+  env_kwargs:
+    max_episode_steps: 50
+    reward_type: "sparse"
+
+vec_normalize:
+  enabled: true
+  norm_obs: true
+  norm_reward: false
+  clip_obs: 10.0
+  gamma: 0.99
+
+algo:
+  policy: "MultiInputPolicy"
+
+  use_her: true
+  her_kwargs:
+    n_sampled_goal: 4
+    goal_selection_strategy: "future"
+
+  action_noise_sigma: 0.1
+
+  learning_rate: 3.0e-4
+  buffer_size: 1000000
+  learning_starts: 10000
+  batch_size: 256
+  tau: 0.005
+  gamma: 0.98
+
+  train_freq: [1, "step"]   # with gradient_steps=-1 → effective UTD ≈ 1
+  gradient_steps: -1
+
+  policy_delay: 2
+  target_policy_noise: 0.2
+  target_noise_clip: 0.5
+
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]
+      qf: [256, 256]
+    activation_fn: "relu"
+
+  verbose: 1
+
+training:
+  total_timesteps: 100000
+  tensorboard_log: "./logs/td3_fetchreach_tb/"
+  csv_log: "./logs/td3_fetchreach_csv/progress.csv"
+
+  checkpoint:
+    enabled: true
+    save_path: "./models/td3_fetchreach/"
+    save_freq_timesteps: 50000
+    name_prefix: "td3_fetchreach"
+
+  resume: false
+  resume_model_path: "./models/td3_fetchreach/final_model.zip"
+  resume_vecnormalize_path: "./models/td3_fetchreach/vec_normalize_stats.pkl"
+
+evaluation:
+  enabled: true
+  n_eval_episodes: 50
+  deterministic: true
+  render: false
+  eval_freq_timesteps: 1250
+  eval_env_kwargs:
+    max_episode_steps: 50
+    reward_type: "sparse"

@@ -1,0 +1,97 @@
+# config.yaml
+# Production-ready PPO configuration for FetchReach-v4 with SB3
+
+# ----------------------------------------------------------------------
+# Global Settings
+# ----------------------------------------------------------------------
+seed: 42
+algo_name: "ppo"
+
+# ----------------------------------------------------------------------
+# Environment Configuration
+# ----------------------------------------------------------------------
+env:
+  id: "FetchReach-v4"        # Requires gymnasium_robotics
+  n_envs: 4                 # Number of parallel envs for training
+  env_kwargs:
+    max_episode_steps: 50
+    reward_type: "dense"     # Dense reward speeds up training
+
+# ----------------------------------------------------------------------
+# Vector Normalization
+# ----------------------------------------------------------------------
+vec_normalize:
+  enabled: true
+  norm_obs: true
+  norm_reward: false         # False for sparse/dense rewards
+  clip_obs: 10.0
+
+# ----------------------------------------------------------------------
+# Algorithm (PPO) Configuration
+# ----------------------------------------------------------------------
+algo:
+  policy: "MultiInputPolicy"
+
+  # Rollout and optimization settings
+  n_steps: 1024
+  batch_size: 256
+  n_epochs: 4
+
+  # RL hyperparameters
+  gamma: 0.98
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  learning_rate: 1.0e-4
+  max_grad_norm: 0.5
+
+  # Network architecture
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]
+      vf: [256, 256]
+    activation_fn: "tanh"    # More stable for control tasks
+
+  verbose: 1
+
+# ----------------------------------------------------------------------
+# Training Configuration
+# ----------------------------------------------------------------------
+training:
+  total_timesteps: 100000
+
+  # Logging
+  tensorboard_log: "./logs/ppo_fetch_tb/"
+  csv_log: "./logs/ppo_fetch_csv/progress.csv"
+
+  # Checkpointing
+  checkpoint:
+    enabled: true
+    save_path: "./models/ppo_fetch/"
+    save_freq_timesteps: 50000
+    name_prefix: "ppo_fetch_reach"
+
+  # Resume logic
+  resume: false
+  resume_model_path: "./models/ppo_fetch/ppo_fetch_reach_1000000_steps.zip"
+  resume_vecnormalize_path: "./models/ppo_fetch/vec_normalize_stats.pkl"
+
+# ----------------------------------------------------------------------
+# Evaluation Configuration
+# ----------------------------------------------------------------------
+evaluation:
+  enabled: true
+  n_eval_episodes: 20
+  deterministic: true
+  render: false
+  eval_freq_timesteps: 10000   # Align with PPO rollout (n_envs × n_steps)
+  eval_env_kwargs:
+    max_episode_steps: 50
+    reward_type : "dense"
+
+# ----------------------------------------------------------------------
+# Curriculum Learning (Optional)
+# ----------------------------------------------------------------------
+curriculum:
+  enabled: false
