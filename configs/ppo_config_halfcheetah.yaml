@@ -3,49 +3,49 @@ algo_name: "ppo"
 
 env:
   id: "HalfCheetah-v5"
-  n_envs: 8                # 8-16 parallel environments efficient for HalfCheetah with PPO
-  env_kwargs: {}           # No special kwargs needed for standard Mujoco
+  n_envs: 8                
+  env_kwargs: {}           
 
 vec_normalize:
   enabled: true
   norm_obs: true
-  norm_reward: true        # CRITICAL: Normalize rewards for HalfCheetah
+  norm_reward: true       
   clip_obs: 100.0
   gamma: 0.99
 
 algo:
-  policy: "MlpPolicy"      # Use MlpPolicy for Box observation space
+  policy: "MlpPolicy"      
 
   # Learning parameters
-  learning_rate: 0.0003    # 3e-4 is standard for PPO (stable)
-  n_steps: 512             # Rollout length per environment (total: 512 * 8 = 4096 steps per update)
-  batch_size: 64           # Mini-batch size for optimization
-  n_epochs: 8              # Number of epochs for each rollout
-  gamma: 0.99              # Discount factor
-  gae_lambda: 0.95         # GAE parameter for advantage estimation
+  learning_rate: 0.0003   
+  n_steps: 512             
+  batch_size: 64           
+  n_epochs: 8              
+  gamma: 0.99              
+  gae_lambda: 0.95         
 
   # PPO-specific clipping
-  clip_range: 0.2          # PPO clipping parameter
-  clip_range_vf: null      # Optional value function clipping (null = no clipping)
+  clip_range: 0.2          
+  clip_range_vf: null      
   
   # Entropy for exploration
-  ent_coef: 0.0            # Entropy coefficient (0.0 for HalfCheetah, can increase for more exploration)
+  ent_coef: 0.0           
   
   # Value function
-  vf_coef: 0.5             # Value function coefficient
-  max_grad_norm: 0.5       # Gradient clipping
+  vf_coef: 0.5             
+  max_grad_norm: 0.5       
   
   # Additional PPO parameters
-  use_sde: false           # State-dependent exploration (set true for alternative noise)
-  sde_sample_freq: -1      # Only relevant if use_sde=true
-  target_kl: null          # Early stopping based on KL divergence (null = disabled)
+  use_sde: false          
+  sde_sample_freq: -1      
+  target_kl: null         
   
   # Networks
   policy_kwargs:
     net_arch:
-      pi: [512, 256]       # Policy network: 2 layers of 256 units
-      vf: [512, 256]       # Value network: 2 layers of 256 units
-    activation_fn: "relu"  # Tanh is standard for PPO on continuous control
+      pi: [512, 256]       
+      vf: [512, 256]       
+    activation_fn: "relu"  
 
   verbose: 1
 
@@ -55,7 +55,7 @@ training:
 
   checkpoint:
     enabled: true
-    save_freq_timesteps: 50000  # Save checkpoint every 50k steps
+    save_freq_timesteps: 50000
     save_path: "./models/ppo_halfcheetah/"
     name_prefix: "ppo_hc"
 
@@ -68,5 +68,5 @@ evaluation:
   n_eval_episodes: 20
   deterministic: true
   render: false
-  eval_freq_timesteps: 1250  # Evaluate every 10,000 steps for better monitoring
+  eval_freq_timesteps: 1250
   eval_env_kwargs: {}

@@ -33,7 +33,7 @@ algo:
   tau: 0.005
   gamma: 0.98
 
-  train_freq: [1, "step"]   # with gradient_steps=-1 → effective UTD ≈ 1
+  train_freq: [1, "step"]
   gradient_steps: -1
 
   policy_delay: 2

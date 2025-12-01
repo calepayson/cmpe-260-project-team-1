@@ -3,14 +3,13 @@ algo_name: "ppo"
 
 env:
   id: "Ant-v5"
-  n_envs: 8            # 8 Parallel environments for speed
+  n_envs: 8            
   env_kwargs: {}
 
 vec_normalize:
   enabled: true
   norm_obs: true
-  norm_reward: false   # SET TO FALSE: Matches your working simple script. 
-                       # Keeps rewards intuitive (-100 to 3000+) and avoids instability.
+  norm_reward: false 
   clip_obs: 10.0
   gamma: 0.99
 
@@ -18,16 +17,13 @@ algo:
   policy: "MlpPolicy"
 
   # Learning Rate
-  learning_rate: 3.0e-4  # Standard PPO rate (0.0003). 1e-4 is often too slow for Ant.
+  learning_rate: 3.0e-4
 
-  # CRITICAL: Buffer Math for Convergence
-  # Total Buffer = n_envs * n_steps
-  # We want ~2048 transitions per update to match standard PPO behavior.
-  # 8 envs * 256 steps = 2048 total steps.
+  
   n_steps: 256           
   
-  batch_size: 64         # Smaller batch size for more granular updates
-  n_epochs: 10           # Re-use data 10 times per update
+  batch_size: 64        
+  n_epochs: 10           
   
   # PPO Specifics
   gamma: 0.99
@@ -36,7 +32,7 @@ algo:
   clip_range_vf: null
   
   # Entropy & Gradients
-  ent_coef: 0.0          # Ant usually explores well without forced entropy
+  ent_coef: 0.0          
   vf_coef: 0.5
   max_grad_norm: 0.5
   
@@ -49,12 +45,11 @@ algo:
     net_arch:
       pi: [256, 256]
       vf: [256, 256]
-    activation_fn: "relu" # ReLU is often sharper/better for MuJoCo contacts than Tanh
-
+    activation_fn: "relu"
   verbose: 1
 
 training:
-  total_timesteps: 2000000 # Ant takes longer than TD3 to perfect running
+  total_timesteps: 2000000 
   tensorboard_log: "./logs/ppo_ant_tb/"
 
   checkpoint:
@@ -72,5 +67,5 @@ evaluation:
   n_eval_episodes: 20
   deterministic: true
   render: false
-  eval_freq_timesteps: 10000  # Evaluate less frequently (every 5 updates) to save time
+  eval_freq_timesteps: 10000
   eval_env_kwargs: {}

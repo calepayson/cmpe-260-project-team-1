@@ -3,34 +3,30 @@ algo_name: "td3"
 
 env:
   id: "HalfCheetah-v5"
-  n_envs: 8                # 8-16 parallel environments is efficient for HalfCheetah
-  env_kwargs: {}           # No special kwargs needed for standard Mujoco
+  n_envs: 8                
+  env_kwargs: {}           
 
 vec_normalize:
   enabled: true
   norm_obs: true
-  norm_reward: true        # CRITICAL: Normalize rewards for HalfCheetah (unlike sparse fetch)
+  norm_reward: true       
   clip_obs: 10.0
   gamma: 0.99
 
 algo:
-  policy: "MlpPolicy"      # Use MlpPolicy for Box observation space (not MultiInputPolicy)
-
+  policy: "MlpPolicy"      
   # Exploration
-  action_noise_sigma: 0.1  # Standard Gaussian noise magnitude for locomotion
-
+  action_noise_sigma: 0.1  
   # Learning
-  learning_rate: 0.001     # 1e-3 (Aggressive) or 3e-4 (Standard). TD3 handles 1e-3 well here.
+  learning_rate: 0.001     
   buffer_size: 1000000
-  learning_starts: 25000   # Longer warmup than Fetch
+  learning_starts: 25000   
   batch_size: 256
   tau: 0.005
   gamma: 0.99
 
-  # Update cadence
-  # For HalfCheetah, updating every step (or equivalent) is standard
   train_freq: [1, "step"] 
-  gradient_steps: -1       # -1 means "same as number of steps collected in episode"
+  gradient_steps: -1    
 
   # TD3 specifics
   policy_delay: 2

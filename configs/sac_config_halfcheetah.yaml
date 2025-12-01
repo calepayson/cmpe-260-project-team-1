@@ -3,49 +3,41 @@ algo_name: "sac"
 
 env:
   id: "HalfCheetah-v5"
-  n_envs: 8                # 8-16 parallel environments is efficient for HalfCheetah
-  env_kwargs: {}           # No special kwargs needed for standard Mujoco
+  n_envs: 8                
+  env_kwargs: {}          
 
 vec_normalize:
   enabled: true
   norm_obs: true
-  norm_reward: true        # CRITICAL: Normalize rewards for HalfCheetah
+  norm_reward: true        
   clip_obs: 10.0
   gamma: 0.99
 
 algo:
-  policy: "MlpPolicy"      # Use MlpPolicy for Box observation space
+  policy: "MlpPolicy"      
 
   # Learning
-  learning_rate: 0.0001    # 3e-4 is standard for SAC (more stable than 1e-3)
+  learning_rate: 0.0001    
   buffer_size: 1000000
-  learning_starts: 10000   # SAC can start learning earlier than TD3
+  learning_starts: 10000   
   batch_size: 256
   tau: 0.005
   gamma: 0.99
 
   # Update cadence
-  # SAC typically updates more frequently than TD3
   train_freq: [1, "step"] 
-  gradient_steps: 1        # SAC usually uses 1:1 ratio (1 gradient step per env step)
+  gradient_steps: 1        
 
   # SAC-specific entropy tuning
-  ent_coef: "auto"         # Automatic entropy tuning (recommended)
-  target_entropy: "auto"   # Auto-calculated as -dim(action_space)
-  
-  # If you want manual entropy coefficient instead:
-  # ent_coef: 0.2          # Manual entropy coefficient
+  ent_coef: "auto"         
+  target_entropy: "auto"   
   
   # Networks
   policy_kwargs:
     net_arch:
-      pi: [256, 256]       # Policy network
-      qf: [256, 256]       # Q-function network
+      pi: [256, 256]       
+      qf: [256, 256]       
     activation_fn: "relu"
-    # SAC uses squashed Gaussian policy (tanh output) by default
-    # log_std_init: -3     # Initial log std (optional, default is -3)
-    # use_sde: false       # State Dependent Exploration (usually false for continuous)
-
   verbose: 1
 
 training:
